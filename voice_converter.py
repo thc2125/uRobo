@@ -104,7 +104,7 @@ class VoiceConverter():
         frame_f0s = []
         for frame in frames:
             frame_mfccs.append(pysptk.mfcc(np.array(frame.get_array_of_samples())))
-            frame_f0s.append(pysptk.rapt(np.array(frame.get_array_of_samples()))
+            frame_f0s.append(pysptk.rapt(np.array(frame.get_array_of_samples()), 16000)
         return np.stack(frame_mfccs), np.stack(frame_f0s)
             
     def synthesize(query):
