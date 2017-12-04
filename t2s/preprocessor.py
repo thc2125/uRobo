@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import shutil
 
@@ -24,7 +25,7 @@ all_dirname = 'all'
 audio_rate = 16000
 fs = audio_rate
 
-def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
+def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 8)):
     spk2gender = convert_and_gender(data_dir, normalized_dir)
     idx2phone = [] 
     phone2idx = {}
@@ -44,7 +45,9 @@ def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
     # Preload utterance samples
     utterance_wavs = {}
     utterance_phones = []
-    utterance_phone_feats = []
+    utterance_phone_duration = []
+    utterance_phone_f_0 = []
+    utterance_phone_excitation = []
     utterance2idx = {}
     with (normalized_dir / 'all' / alignments_filename).open('r') as alignments_file:
         for line in alignments_file:
@@ -57,7 +60,10 @@ def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
                 utterance_wavs[utterance] = utterance_wav
                 utterance2idx[utterance] = len(utterance_phones)
                 utterance_phones.append([])
-                utterance_phone_feats.append([])
+                utterance_phone_f_0.append([])
+                utterance_phone_excitation.append([])
+                utterance_phone_duration.append([])
+
 
     with (normalized_dir / 'all' / alignments_filename).open('r') as alignments_file:
         for line in alignments_file:
@@ -71,60 +77,87 @@ def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
             phone = int(split_line[4])
             utterance_phones[utterance_idx].append(phone)
 
-            feats = get_feats(utterance_wavs[utterance], utterance, alignments)
-            utterance_phone_feats[utterance_idx].append(feats)
+            duration, f_0, excitation = get_feats(utterance_wavs[utterance], utterance, alignments)
+            utterance_phone_duration[utterance_idx].append(f_0)
+            utterance_phone_f_0[utterance_idx].append(excitation)
+            utterance_phone_excitation[utterance_idx].append(excitation)
 
     max_utt_len = len(max(utterance_phones, key=len))
-    pad_utterance_phones = [keras.utils.to_categorical(np.lib.pad(phones, (0, max_utt_len-len(phones)), 'constant', constant_values=0), num_classes=len(idx2phone))
+    pad_utterance_phones = [np.lib.pad(phones, (0, max_utt_len-len(phones)), 'constant', constant_values=0)
                             for phones in utterance_phones]
-    pad_utterance_phone_feats = [phone_feats + ([np.zeros(len(phone_feats[0]))] * (max_utt_len -len(phone_feats)))
-                                 for phone_feats in utterance_phone_feats]
-    print(pad_utterance_phone_feats)
+    pad_utterance_phone_f_0 = [f_0s + ([f_0s[0].dtype.type(0)] * (max_utt_len -len(f_0s)))
+                               for f_0s in utterance_phone_f_0]
+    pad_utterance_phone_excitation = [excitations + ([excitations[0].dtype.type(0)] * (max_utt_len -len(excitations)))
+                                      for excitations in utterance_phone_excitation]
+    pad_utterance_phone_duration = [durations + ([durations[0].dtype.type(0)] * (max_utt_len -len(durations)))
+                                    for durations in utterance_phone_duration]
+
     np_phones = np.stack(pad_utterance_phones)
-    np_phone_feats = np.stack(pad_utterance_phone_feats)
+    np_phone_f_0 = np.stack(pad_utterance_phone_f_0)
+    np_phone_duration = np.stack(pad_utterance_phone_duration)
+    np_phone_excitation = np.stack(pad_utterance_phone_excitation)
 
     for i in range(0,10):
         print(np_phones2str(np_phones[i], idx2phone))
 
     np.save(str(normalized_dir / all_dirname / 'np_phones'), np_phones, allow_pickle=False)
-    np.save(str(normalized_dir / all_dirname / 'np_phone_feats'), np_phone_feats, allow_pickle=False)
+    np.save(str(normalized_dir / all_dirname / 'np_phone_f_0'), np_phone_f_0, allow_pickle=False)
+    np.save(str(normalized_dir / all_dirname / 'np_phone_excitation'), np_phone_excitation, allow_pickle=False)
+    np.save(str(normalized_dir / all_dirname / 'np_phone_duration'), np_phone_duration, allow_pickle=False)
 
     male_utterance_phones = []
-    male_utterance_phone_feats = []
+    male_utterance_phone_duration = []
+    male_utterance_phone_f_0 = []
+    male_utterance_phone_excitation = []
     male_dur = 0
 
     female_utterance_phones = []
-    female_utterance_phone_feats = []
+    female_utterance_phone_duration = []
+    female_utterance_phone_f_0 = []
+    female_utterance_phone_excitation = []
     female_dur = 0
 
     for utterance, idx in utterance2idx.items():
         spk = '-'.join(utterance.split('-')[0:-1])
         if spk in spk2gender and spk2gender[spk]==male and male_dur < dur_limit:
             male_utterance_phones.append(pad_utterance_phones[idx])
-            male_utterance_phone_feats.append(pad_utterance_phone_feats[idx])
+            male_utterance_phone_duration.append(pad_utterance_phone_duration[idx])
+            male_utterance_phone_f_0.append(pad_utterance_phone_f_0[idx])
+            male_utterance_phone_excitation.append(pad_utterance_phone_excitation[idx])
+
             male_dur += len(utterance_wavs[utterance])
         if spk in spk2gender and spk2gender[spk]==female and female_dur < dur_limit:
             female_utterance_phones.append(pad_utterance_phones[idx])
-            female_utterance_phone_feats.append(pad_utterance_phone_feats[idx])
+            female_utterance_phone_duration.append(pad_utterance_phone_duration[idx])
+            female_utterance_phone_f_0.append(pad_utterance_phone_f_0[idx])
+            female_utterance_phone_excitation.append(pad_utterance_phone_excitation[idx])
             female_dur += len(utterance_wavs[utterance])
 
     np_male_phones = np.stack(male_utterance_phones)
-    np_male_phone_feats = np.stack(male_utterance_phone_feats)
+    np_male_phone_duration = np.stack(male_utterance_phone_duration)
+    np_male_phone_f_0 = np.stack(male_utterance_phone_f_0)
+    np_male_phone_excitation = np.stack(male_utterance_phone_excitation)
 
     np_female_phones = np.stack(female_utterance_phones)
-    np_female_phone_feats = np.stack(female_utterance_phone_feats)
+    np_female_phone_duration = np.stack(female_utterance_phone_duration)
+    np_female_phone_f_0 = np.stack(female_utterance_phone_f_0)
+    np_female_phone_excitation = np.stack(female_utterance_phone_excitation)
 
     np.save(str(normalized_dir / male / 'np_phones'), np_male_phones, allow_pickle=False)
-    np.save(str(normalized_dir / male /'np_phone_feats'), np_male_phone_feats, allow_pickle=False)
+    np.save(str(normalized_dir / male /'np_phone_duration'), np_male_phone_duration, allow_pickle=False)
+    np.save(str(normalized_dir / male /'np_phone_f_0'), np_male_phone_f_0, allow_pickle=False)
+    np.save(str(normalized_dir / male /'np_phone_excitation'), np_male_phone_excitation, allow_pickle=False)
 
     np.save(str(normalized_dir / female / 'np_phones'), np_female_phones, allow_pickle=False)
-    np.save(str(normalized_dir / female /'np_phone_feats'), np_female_phone_feats, allow_pickle=False)
+    np.save(str(normalized_dir / female /'np_phone_duration'), np_female_phone_duration, allow_pickle=False)
+    np.save(str(normalized_dir / female /'np_phone_f_0'), np_female_phone_f_0, allow_pickle=False)
+    np.save(str(normalized_dir / female /'np_phone_excitation'), np_female_phone_excitation, allow_pickle=False)
 
 
 def np_phones2str(np_phones, idx2phone):
     phonestr = ''
     for phone_idx in np_phones:
-        phonestr += idx2phone[np.argmax(phone_idx)] + ' '
+        phonestr += idx2phone[phone_idx] + ' '
     return phonestr
 
 def get_feats(utterance_wav, utterance, alignments):
@@ -142,9 +175,8 @@ def get_feats(utterance_wav, utterance, alignments):
     #print(duration)
 
     #print(phone_samples)
-    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='logf0')
-    f_0_mu = np.mean(f_0)
-    f_0_std = np.std(f_0)
+    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='f0')
+    log_f_0_mu = np.log(np.mean(f_0))
 
     #mfcc = pysptk.mfcc(samples)
 
@@ -154,7 +186,7 @@ def get_feats(utterance_wav, utterance, alignments):
     excitation_mu = np.mean(excitation)
     excitation_std = np.std(excitation)
     #print()
-    return np.array([duration, f_0_mu, f_0_std, excitation_mu, excitation_std])
+    return duration, log_f_0_mu, excitation_mu
 
 def convert_and_gender(data_dir, normalized_dir):
     spk2gender = get_spk2gender(data_dir)
