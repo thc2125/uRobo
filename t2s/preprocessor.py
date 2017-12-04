@@ -5,6 +5,7 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 
+import keras.utils
 import numpy as np
 import pysptk
 
@@ -74,7 +75,7 @@ def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
             utterance_phone_feats[utterance_idx].append(feats)
 
     max_utt_len = len(max(utterance_phones, key=len))
-    pad_utterance_phones = [np.lib.pad(phones, (0, max_utt_len-len(phones)), 'constant', constant_values=0)
+    pad_utterance_phones = [keras.utils.to_categorical(np.lib.pad(phones, (0, max_utt_len-len(phones)), 'constant', constant_values=0), num_classes=len(idx2phone))
                             for phones in utterance_phones]
     pad_utterance_phone_feats = [phone_feats + ([np.zeros(len(phone_feats[0]))] * (max_utt_len -len(phone_feats)))
                                  for phone_feats in utterance_phone_feats]
@@ -123,7 +124,7 @@ def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
 def np_phones2str(np_phones, idx2phone):
     phonestr = ''
     for phone_idx in np_phones:
-        phonestr += idx2phone[phone_idx] + ' '
+        phonestr += idx2phone[np.argmax(phone_idx)] + ' '
     return phonestr
 
 def get_feats(utterance_wav, utterance, alignments):
@@ -141,7 +142,7 @@ def get_feats(utterance_wav, utterance, alignments):
     #print(duration)
 
     #print(phone_samples)
-    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100)
+    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='logf0')
     f_0_mu = np.mean(f_0)
     f_0_std = np.std(f_0)
 
