@@ -24,7 +24,7 @@ all_dirname = 'all'
 audio_rate = 16000
 fs = audio_rate
 
-def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 8)):
+def preprocess(data_dir, normalized_dir, dur_limit=(fs * 60 * 60 * 10)):
     spk2gender = convert_and_gender(data_dir, normalized_dir)
     idx2phone = [] 
     phone2idx = {}
@@ -202,7 +202,15 @@ def get_feats(utterance_wav, utterance, alignments):
     #print("END: " + str(phone_end))
     duration = phone_end - phone_start
     phone_samples = utterance_wav[phone_start:phone_end]
-    phone_test = utterance_wav[phone_start]
+    try:
+        phone_test = utterance_wav[phone_start]
+    except:
+        print("Outof bounds!!")
+        print(utterance)
+        print(phone_start)
+        print(phone_end)
+        print(alignments)
+        return (0, 0, 0, 0)
 
     #print(duration)
 

@@ -30,20 +30,37 @@ class NNConcatenator():
         self.target_predicter.train()
 
     def generate(self, text):
-        phone_idxs = self._text2phones(text)
+
+        # Append the silence index to the beginning and the end
+        # To indicate the start and stop of the target utterance
+        phone_idxs = [1] + self._text2phones(text) + [1]
+
         candidate_units = self._get_candidates(phone_idxs)
 
+
         # Weights for the calculation of target cost
-        c_t_weights = numpy.array([3, 2, 1])
+        # c_t_weights = numpy.array([3, 2, 1])
 
         # Weights for the calculation of concatenation cost
+        # Get the target features for each phone
         target_feats = self._get_target_feats(phone_idxs)
+
+        # W
+        for candidate in candidate_units[1]:
+            c_t = np.sum(np.absolute(np.subtract(target_feats, candidate_feats)))
+            c_c = 
+            candidate_costs[0][candidate] = 
+
+
         for idx in range(len(phone_idxs)):
+
 
             prev_candidate = -1
             for candidate in candidate[units]:
-                candidate_feats = np.array(self.utterance_feats[candidate[0]][candidate[1]])
-                c_t = np.subtract(target_feats, candidate_feats)
+                candidate_target_feats = np.array(self.utterance_feats[candidate[0]][candidate[1]])
+                # TODO: Bring in new feats
+                candidate_cost_feats = candidate_target_feats
+                c_t = np.sum(np.absolute(np.subtract(target_feats, candidate_feats)))
                 if prev_candidate < 0:
                     c_c = 0
                 else:
@@ -58,9 +75,12 @@ class NNConcatenator():
         return phone_idxs
 
     def _get_candidates(self, phone_idxs):
-        candidates=[]
-        for phone_idx in phone_idxs:
+        # There needs to be a nil silence candidate at the beginning and end
+        candidates=[[(0,0)]]
+        #
+        for phone_idx in phone_idxs[1:-1]:
             candidates.append(self.phone2units[phone_idx])
+        candidates.append[[(0,0)]]
         return candidates
 
     def _get_target_feats(self, phone_idxs):
