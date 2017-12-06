@@ -48,7 +48,7 @@ class NNConcatenator():
         # W
         for candidate in candidate_units[1]:
             c_t = np.sum(np.absolute(np.subtract(target_feats, candidate_feats)))
-            c_c = 
+            
             candidate_costs[0][candidate] = 
 
 
