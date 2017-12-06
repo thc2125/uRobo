@@ -19,10 +19,11 @@ class NN():
     def _init_model(self, utt_len, num_phones, num_features):
         from keras.models import Model, load_model
         from keras.layers import Bidirectional, Dense, Embedding, Input, LSTM, TimeDistributed
+        from keras.optimizers import SGD
 
         phone_input = Input(shape=(utt_len,), dtype='int32', name='phone_input')
 
-        embeddings = Embedding(output_dim=256, 
+        embeddings = Embedding(output_dim=50, 
                                input_dim=num_phones, 
                                input_length=utt_len, 
                                mask_zero=True)(phone_input)
@@ -34,7 +35,8 @@ class NN():
         features = TimeDistributed(Dense(num_features, activation='relu'))(context_embeddings3)
 
         model = Model(inputs=phone_input, outputs=features)
-        model.compile(optimizer='sgd',
+        optimizer = SGD(lr=.1)
+        model.compile(optimizer=optimizer,
                       loss='mean_squared_error',
                       metrics=['accuracy'])
         return model
@@ -46,7 +48,7 @@ class NN():
             checkpoints_dirpath.mkdir(parents=True)
         checkpointer = ModelCheckpoint(filepath=str(checkpoints_dirpath
                                                     / '{epoch:02d}.hdf5'))
-        self.model.fit(utterance_phones, features, callbacks=[checkpointer])
+        self.model.fit(utterance_phones, features, callbacks=[checkpointer], epochs=epochs)
         self.model.save(str(self.model_dir / 'model.h5'))
 
     def evaluate(self, utterance_phones, gold_features):
