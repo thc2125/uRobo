@@ -1,13 +1,18 @@
 import argparse
+import json
+import math
 import os
 import random
 import shutil
 
-import json
-
+from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
+import pysptk
+
 from pydub import AudioSegment
+from scipy.io import wavfile
 
 # Define constants
 phones_filename = 'phones'
@@ -51,17 +56,23 @@ def copy_base_data(orig_dirpath,
     vocabulary = get_idnt((orig_dirpath / (vocabulary_filename + '.txt')))
     lexicon = get_idnt_value((orig_dirpath / (lexicon_filename + '.txt')), lists=True)
 
+    transcriptions = get_idnt_value((orig_dirpath / (transcriptions_filename +
+        '.txt')), lists=True)
+
+    utt2phones_all, utt2alignments_all = get_alignment_data(orig_dirpath / (alignments_filename + '.txt'), phones)
+
     utterances, spks, utterance2duration, curr_duration = get_utterances(
             (orig_dirpath / (utterance_duration_filename + '.txt')),
             spk2gender, 
             gender,
-            duration)
+            duration,
+            lexicon,
+            transcriptions,
+            utt2alignments_all)
 
-    transcriptions = get_idnt_value((orig_dirpath / (transcriptions_filename +
-        '.txt')), lists=True)
 
     # Copy and convert audio from flac to wav
-    copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
+    #copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
 
     # Copy phone list
     shutil.copy(str(orig_dirpath / (phones_filename + '.txt')), 
@@ -99,8 +110,6 @@ def copy_base_data(orig_dirpath,
         json.dump(new_transcriptions, transcriptions_file, indent=4)
 
 
-    with (processed_dirpath / (utt2alignments_filename + '.json')).open('w') as utt2alignments_file:
-        json.dump(utt2alignments, utt2alignments_file, indent=4)
 
     # Copy spk2gender
     shutil.copy(str(orig_dirpath / (spk2gender_filename + '.txt')),
@@ -111,66 +120,100 @@ def copy_base_data(orig_dirpath,
 
     # Copy alignments
     copy_id_values(orig_dirpath / (alignments_filename + '.txt'), 
-                   processed_dirpath / alignments_filename + '.txt',
+                   processed_dirpath / (alignments_filename + '.txt'),
                    utterances)
 
-    utt2phones, utt2alignments = get_alignment_data(processed_dirpath / alignments_filename)
+    utt2phones, utt2alignments = get_alignment_data(processed_dirpath / (alignments_filename + '.txt'), phones)
     #jsonize 
     with (processed_dirpath / (utt2phones_filename + '.json')).open('w') as utt2phones_file:
         json.dump(utt2phones, utt2phones_file, indent=4)
 
+    with (processed_dirpath / (utt2alignments_filename + '.json')).open('w') as utt2alignments_file:
+        json.dump(utt2alignments, utt2alignments_file, indent=4)
+
+    return utterances
 
 def process_data(processed_dirpath, utterances):
-    utt2phones=json.load(str(processed_dirpath / utt2phones_filename + '.json'))
-    utt2alignments=json.load(str(processed_dirpath / utt2alignments_filename + '.json'))
+    with (processed_dirpath / (utt2phones_filename + '.json')).open() as utt2phones_file:
+        utt2phones=json.load(utt2phones_file)
+    with (processed_dirpath / (utt2alignments_filename + '.json')).open() as utt2alignments_file:
+        utt2alignments=json.load(utt2alignments_file)
 
-    transcriptions = json.load(str(processed_dirpath / transcriptions_filename + '.json'))
+    with (processed_dirpath / (transcriptions_filename + '.json')).open() as transcriptions_file:
+        transcriptions = json.load(transcriptions_file)
 
-    idx2phones = json.load(str(processed_dirpath / phones_filename + '.json'))
+    with (processed_dirpath / (phones_filename + '.json')).open() as phones_file:
+        idx2phones = json.load(phones_file)
 
     phones2idx = {idx2phones[idx]: idx 
-                      for idx in range(len(idx2vocabulary))}
+                      for idx in range(len(idx2phones))}
+    with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
+        idx2vocabulary = json.load(vocab_file)
 
-    idx2vocabulary = json.load(str(processed_dirpath / vocab_filename + '.json'))
     vocabulary2idx = {idx2vocabulary[idx]: idx 
                       for idx in range(len(idx2vocabulary))}
 
+    word_list = []
+    phones_list = []
+    maxuttlen = max([len(utterance) for utterance in transcriptions.values()])
+    maxphonelen = max([len(phones) for phones in utt2alignments.values()])
+
+    for idx in range(len(utterances)):
+        word_list.append(np.pad([vocabulary2idx[word] for word in transcriptions[utterances[idx]]],(0, maxuttlen - len(transcriptions[utterances[idx]])), 'constant'))
+        phones_list.append(np.pad([phones2idx[phone] for phone in utt2phones[utterances[idx]]],(0, maxphonelen - len(utt2phones[utterances[idx]])), 'constant'))
+
+    np_word_list=np.stack(word_list)
+    np.save(str(processed_dirpath / (transcriptions_filename + '.npy')), word_list, allow_pickle=False)
+    np_phones_list=np.stack(phones_list)
+    np.save(str(processed_dirpath / (utt2phones_filename + '.npy')), phones_list, allow_pickle=False)
+
+
     # Get the features of each utterance
+    print("UTTS")
+    print(utterances)
     utterance_wavs = get_utterance_wavs(processed_dirpath, utterances)
-    utterance2target_feats=defaultdict(list)
-    #utterance2concat_feats=defaultdict(list)
-    for utterance in utterance:
+    utterance2target_feats=[]
+    utterance2concat_feats=[]
+
+    for utterance in utterances:
+        utterance2target_feats.append([])
+        utterance2concat_feats.append([])
         for alignment in utt2alignments[utterance]:
             target_feats = get_target_feats(utterance_wavs[utterance], alignment)
             # For now, just get rid of duration.
             concat_feats = target_feats[1:]
             #concat_feats = get_concat_feats(utterance_wavs[utterance], alignment)
-            utterance2target_feats[utterance].append(target_feats)
-            utterance2concat_feats[utterance].append(concat_feats)
-    np_utterance2target_feats = np.stack(utterance2target_feats)
-    np.save(str(processed_dir / target_feats_filename), np_utterance2target_feats, allow_pickle=False)
+            utterance2target_feats[-1].append(target_feats)
+            utterance2concat_feats[-1].append(concat_feats)
+
+    pad_utterance2target_feats = [np.pad(feats, ((0, maxphonelen-len(feats)), (0, 0)), 'constant')
+                                  for feats in utterance2target_feats]
+
+    pad_utterance2concat_feats = [np.pad(feats, ((0, maxphonelen-len(feats)), (0,0)), 'constant')
+                                  for feats in utterance2concat_feats]
+    np_utterance2target_feats = np.stack(pad_utterance2target_feats)
+    np.save(str(processed_dirpath / target_feats_filename), np_utterance2target_feats, allow_pickle=False)
+    np_utterance2concat_feats = np.stack(pad_utterance2concat_feats)
+    np.save(str(processed_dirpath / concat_feats_filename), np_utterance2concat_feats, allow_pickle=False)
+
+    '''
     np_utterance2concat_feats = np.stack(utterance2concat_feats)
-    np.save(str(processed_dir / concat_feats_filename), np_utterance2concat_feats, allow_pickle=False)
-
-    word_list = []
-    phones_list = []
-    for idx in len(utterances):
-        word_list.append(np.array([vocabulary2idx[word] for word in transcriptions[utterances[idx]]]))
-        phones_list.append(np.array([phones2idx[phone] for phone in utt2phones[utterances[idx]]]))
-
-    np_word_list=np.stack(word_list)
-    np.save(str(processed_dir / transcription_filename + '.npy'), word_list, allow_pickle=False)
-    np_phones_list=np.stack(phones_list)
-    np.save(str(processed_dir / utt2phones_filename + '.npy'), word_list, allow_pickle=False)
-
+    np.save(str(processed_dirpath / concat_feats_filename), np_utterance2concat_feats, allow_pickle=False)
+    '''
 def get_target_feats(utterance_wav, alignments):
-    phone_start = int(alignments[0] * fs)
+    #phone_start = int(alignments[0] * fs)
+    phone_start = alignments[0]
     #print("START: " + str(phone_start))
-    phone_end = int(alignments[1] * fs)
+    #phone_end = int(alignments[1] * fs)
     #print("END: " + str(phone_end))
+    phone_end = alignments[1]
+    #print(phone_start)
+    #print(phone_end)
+    #print(utterance_wav)
+    #print(len(utterance_wav))
     duration = phone_end - phone_start
     phone_samples = utterance_wav[phone_start:phone_end]
-    phone_test = utterance_wav[phone_start]
+    #phone_test = utterance_wav[phone_start]
     '''
     try:
         phone_test = utterance_wav[phone_start]
@@ -200,24 +243,25 @@ def get_target_feats(utterance_wav, alignments):
     energy = np.sum(np.square(phone_samples)) / duration
     return duration, f_0_init, f_0_end, energy
 
-def get_alignment_data(alignments_file):
-    utterance2phones = defaultdict(list) 
-    utterance2alignments = defaultdict(list)
-    with alignments_file.open():
+def get_alignment_data(alignments_filepath, phones):
+    utt2phones = defaultdict(list) 
+    utt2alignments = defaultdict(list)
+    with alignments_filepath.open() as alignments_file:
         for line in alignments_file:
             split_line = line.split()
             utterance = split_line[0]
-            utterance2phones[utterance].append(phones[int(split_line[-1])])
-            utterance2alignments[utterance].append((int(unit_idx) for phone_idx in
-                    split_line[2:4]))
+            utt2phones[utterance].append(phones[int(split_line[-1])])
+            start_sample = int(float(split_line[2])*fs)
+            end_sample =  start_sample + int(float(split_line[3])*fs)
+            utt2alignments[utterance].append([start_sample, end_sample])
 
-    return utterance2phones, utterance2alignments
+    return utt2phones, utt2alignments
 
 def get_utterance_wavs(processed_dirpath, utterances):
     utterance_wavs = {}
     for utterance in utterances:
         utterance_dirs = get_utterance_dirs(utterance)
-        utterance_wav = wavfile.read(str(processed_dirpath 
+        _, utterance_wav = wavfile.read(str(processed_dirpath 
                                          / utterance_dirs 
                                          / (utterance + '.wav')))
 
@@ -227,13 +271,15 @@ def get_utterance_wavs(processed_dirpath, utterances):
 
 def copy_id_values(orig_filepath, copied_filepath, idnts):
     with orig_filepath.open() as orig_file:
-      with copied_filepath.open() as copied_file:
+      with copied_filepath.open('w') as copied_file:
+        idnts2values = {}
         for line in orig_file:
             split_line = line.split()
             idnt = split_line[0]
             if idnt in idnts:
                 idnts2values[idnt] = split_line[1:]
                 copied_file.write(line)
+    return idnts2values
 
 def get_idnt_value(filepath, lists=False, idnts_type=str, values_type=str):
     idnt2value = {}
@@ -252,15 +298,18 @@ def get_idnt(filepath, idnt_type=str):
     idnts = []
     with filepath.open() as open_file:
         for line in open_file:
-            idnts.append(idnt_type(line))
+            idnts.append(idnt_type(line.strip()))
     return idnts
 
 
 def get_utterances(utterance_duration_filepath,
                    spk2gender,
                    gender,
-                   duration):
-    print(duration)
+                   duration,
+                   lexicon,
+                   transcriptions,
+                   utt2alignments):
+    #print(duration)
     utterance2duration = {}  
     # Get utterances and durations, filtering by gender
     with utterance_duration_filepath.open() as utterance_duration_file:
@@ -274,17 +323,30 @@ def get_utterances(utterance_duration_filepath,
                 utterance2duration[utterance]=float(curr_duration)
 
 
-    curr_duration=0
+    curr_duration = 0
     utterances = []
     spks = set()
     # Get a random selection of utterances <= a duration limit
     shuffled_utterances = (list(utterance2duration.keys()))
     random.shuffle(shuffled_utterances)
     for utterance in shuffled_utterances:
-        if duration and (curr_duration + utterance2duration[utterance]) <= duration:
+        lex_word = True
+        for word in transcriptions[utterance]:
+            if word not in lexicon:
+                lex_word = False
+                continue
+        if utterance not in utt2alignments:
+            print("NO ALIGNMENTS!" + utterance)
+            
+        if (utterance in utt2alignments and 
+            lex_word and 
+            duration and 
+            (curr_duration + utterance2duration[utterance]) <= duration):
             utterances.append(utterance)
             spks.add('-'.join(utterance.split('-')[0:-1]))
             curr_duration += utterance2duration[utterance]
+            print("ALIGNMENTS: " + utterance)
+
     return utterances, spks, utterance2duration, curr_duration
 
 def copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath):

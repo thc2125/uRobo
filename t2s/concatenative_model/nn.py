@@ -73,8 +73,8 @@ if __name__ == "__main__":
 
     model_dir = args.model_dir
 
-    utterance_phone_file = 'np_phones.npy'
-    utterance_phone_feats_file =  'np_phone_feats.npy'
+    utterance_phone_file = 'utt2phone.npy'
+    utterance_phone_feats_file =  'target_feats.npy'
 
     train_phones_unpad = (np.load(str(train_corpus_dir / utterance_phone_file)))
     train_features_unpad = (np.load(str(train_corpus_dir / utterance_phone_feats_file)))
