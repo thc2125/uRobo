@@ -9,7 +9,7 @@ import numpy as np
 # to be more smooth?
 
 class NNConcatenator():
-
+    fs=16000
     def __init__(self, 
                  word2phones,
                  phone2idx,
@@ -35,7 +35,7 @@ class NNConcatenator():
     def train(self, ):
         self.target_predicter.train()
 
-    def generate(self, text):
+    def generate(self, text, output_path=Path('./synth.wav')):
 
         candidates, target_feats = self._get_unit_context(text)
 
@@ -99,8 +99,9 @@ class NNConcatenator():
             curr_idx -= 1
 
         final_units.reverse() 
-        return self._concatenate(final_units)
-
+        concatenation = self._concatenate(final_units)
+        wavfile.write(str(output_path), self.fs, concatenation)
+        return concatenation
 
 
 
@@ -133,13 +134,14 @@ class NNConcatenator():
         return self.target_predicter.predict(phone_idxs)
 
     def _concatenate(self, final_units):
-        for unit in final_units:
-            utterance = idx2utterance[unit[0]]
-            unit_start, unit_end = alignments[utterance][unit[1]]
-            utterance_wav = wavfile.read(str(processed_dirpath 
-                                         / utterance_dirs 
-                                         / (utterance + '.wav')))
-            
-
-
-
+        units = []
+        for unit_idxs in final_units:
+            utterance = idx2utterance[unit_idxs[0]]
+            utterance_dirs = preprocess.get_utterance_dirs(utterance)
+            unit_start, unit_end = alignments[utterance][unit_idxs[1]]
+            utterance_wav = wavfile.read(str(audio_dirpath
+                                             / utterance_dirs 
+                                             / (utterance + '.wav')))
+            units += utterance_wav[int(unit_start*self.fs):int(unit_end*self.fs)]
+        concatenation = np.concatenate(units)
+        return concatenation
