@@ -51,15 +51,17 @@ def copy_base_data(orig_dirpath,
                    duration=None,
                    gender=None):
 
-    spk2gender = get_idnt_value((orig_dirpath / (spk2gender_filename + '.txt')))
-    phones = get_idnt((orig_dirpath / (phones_filename + '.txt')))
-    vocabulary = get_idnt((orig_dirpath / (vocabulary_filename + '.txt')))
-    lexicon = get_idnt_value((orig_dirpath / (lexicon_filename + '.txt')), lists=True)
+    spk2gender = get_gender((orig_dirpath / (spk2gender_filename + '.txt')))
+    idx2phones, phones2idx = get_phones((orig_dirpath / (phones_filename + '.txt')))
+    idx2vocab, vocab2idx = get_vocab((orig_dirpath / (vocabulary_filename + '.txt')))
+    word2phones = get_lexicon((orig_dirpath / (lexicon_filename + '.txt')))
 
-    transcriptions = get_idnt_value((orig_dirpath / (transcriptions_filename +
+    utt2text = get_transcript((orig_dirpath / (transcriptions_filename +
         '.txt')), lists=True)
 
-    utt2phones_all, utt2alignments_all = get_alignment_data(orig_dirpath / (alignments_filename + '.txt'), phones)
+    utt2phones_all, utt2alignments_all = get_alignments(
+            orig_dirpath / (alignments_filename + '.txt'), 
+            idx2phones)
 
     utterances, spks, utterance2duration, curr_duration = get_utterances(
             (orig_dirpath / (utterance_duration_filename + '.txt')),
@@ -72,57 +74,37 @@ def copy_base_data(orig_dirpath,
 
 
     # Copy and convert audio from flac to wav
+    # TODO: Uncomment this!
     #copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
 
-    # Copy phone list
-    shutil.copy(str(orig_dirpath / (phones_filename + '.txt')), 
-                str(processed_dirpath / (phones_filename + '.txt')))
     # JSONize phone list
     with (processed_dirpath / (phones_filename + '.json')).open('w') as phones_file:
-        json.dump(phones, phones_file, indent=4)
+        json.dump(idx2phones, phones_file, indent=4)
 
-    # Copy vocabulary
-    shutil.copy(str(orig_dirpath / (vocabulary_filename + '.txt')), 
-                str(processed_dirpath / (vocabulary_filename + '.txt')))
     # JSONIze vocabulary
     with (processed_dirpath / (vocabulary_filename + '.json')).open('w') as vocabulary_file:
-        json.dump(vocabulary, vocabulary_file, indent=4)
+        json.dump(idx2vocab, vocabulary_file, indent=4)
 
-    # Copy lexicon
-    shutil.copy(str(orig_dirpath / (lexicon_filename + '.txt')), 
-                str(processed_dirpath / lexicon_filename))
     # JSONIze lexicon
     with (processed_dirpath / (lexicon_filename + '.json')).open('w') as lexicon_file:
-        json.dump(lexicon, lexicon_file, indent=4)
+        json.dump(word2phones, lexicon_file, indent=4)
 
     # JSONIze utterances
     with (processed_dirpath / (utterances_filename + '.json')).open('w') as utterance_file:
-        json.dump(utterances, utterance_file, indent=4)
+        json.dump(list(utterances), utterance_file, indent=4)
 
-    utterances_set = set(utterances)
-    # Copy transcriptions
-    copy_id_values(orig_dirpath / (transcriptions_filename + '.txt'), 
-                   processed_dirpath / (transcriptions_filename + '.txt'),
-                   utterances_set)
+    utt2text = {utterance: text 
+                for utterance, text in utt2text.items() 
+                if utterance in utterances_set}
 
-    new_transcriptions = {utterance: transcript for utterance, transcript in transcriptions.items() if utterance in utterances_set}
     with (processed_dirpath / (transcriptions_filename + '.json')).open('w') as transcriptions_file:
-        json.dump(new_transcriptions, transcriptions_file, indent=4)
+        json.dump(utt2text, transcriptions_file, indent=4)
 
-
-
-    # Copy spk2gender
-    shutil.copy(str(orig_dirpath / (spk2gender_filename + '.txt')),
-                str(processed_dirpath / (spk2gender_filename + '.txt')))
     # JSONize spk2gender
     with (processed_dirpath / (spk2gender_filename + '.json')).open('w') as spk2gender_file:
         json.dump(spk2gender, spk2gender_file, indent=4)
 
-    # Copy alignments
-    copy_id_values(orig_dirpath / (alignments_filename + '.txt'), 
-                   processed_dirpath / (alignments_filename + '.txt'),
-                   utterances)
-
+    # Get new alignments
     utt2phones, utt2alignments = get_alignment_data(processed_dirpath / (alignments_filename + '.txt'), phones)
     #jsonize 
     with (processed_dirpath / (utt2phones_filename + '.json')).open('w') as utt2phones_file:
@@ -243,19 +225,6 @@ def get_target_feats(utterance_wav, alignments):
     energy = np.sum(np.square(phone_samples)) / duration
     return duration, f_0_init, f_0_end, energy
 
-def get_alignment_data(alignments_filepath, phones):
-    utt2phones = defaultdict(list) 
-    utt2alignments = defaultdict(list)
-    with alignments_filepath.open() as alignments_file:
-        for line in alignments_file:
-            split_line = line.split()
-            utterance = split_line[0]
-            utt2phones[utterance].append(phones[int(split_line[-1])])
-            start_sample = int(float(split_line[2])*fs)
-            end_sample =  start_sample + int(float(split_line[3])*fs)
-            utt2alignments[utterance].append([start_sample, end_sample])
-
-    return utt2phones, utt2alignments
 
 def get_utterance_wavs(processed_dirpath, utterances):
     utterance_wavs = {}
@@ -294,20 +263,63 @@ def get_idnt_value(filepath, lists=False, idnts_type=str, values_type=str):
                                                          for value in split_line[1:]]
     return idnt2value
 
-def get_idnt(filepath, idnt_type=str):
-    idnts = []
+def get_spk2gender(filepath):
+    spk2gender = {}
     with filepath.open() as open_file:
         for line in open_file:
-            idnts.append(idnt_type(line.strip()))
-    return idnts
+            split_line = line.split()
+            spk2gender[split_line[0]]=split_line[1]
+    return spk2gender
 
+
+def get_phones(filepath):
+    idx2phones = []
+    phones2idx = {}
+    with filepath.open() as open_file:
+        for line in open_file:
+            split_line = line.split()
+            phones2idx[split_line[0]]=len(idx2phones)
+            idx2phones.append(split_line[0])
+    return idx2phones, phones2idx
+
+def get_vocab(filepath):
+    idx2vocab = []
+    vocab2idx = {}
+    with filepath.open() as open_file:
+        for line in open_file:
+            split_line = line.split()
+            vocab2idx[split_line[0]]=len(idx2vocab)
+            idx2vocab.append(split_line[0])
+    return idx2vocab, vocab2idx
+
+def get_lexicon(filepath):
+    word2phones = {}
+    with filepath.open() as open_file:
+        for line in open_file:
+            split_line = line.split()
+            word2phones[split_line[0]] = split_line[1:]
+    return word2phones
+
+def get_alignments(alignments_filepath, idx2phones):
+    utt2phones = defaultdict(list) 
+    utt2alignments = defaultdict(list)
+    with alignments_filepath.open() as alignments_file:
+        for line in alignments_file:
+            split_line = line.split()
+            utterance = split_line[0]
+            utt2phones[utterance].append(idx2phones[int(split_line[-1])])
+            start_sample = int(float(split_line[2])*fs)
+            end_sample =  start_sample + int(float(split_line[3])*fs)
+            utt2alignments[utterance].append([start_sample, end_sample])
+
+    return utt2phones, utt2alignments
 
 def get_utterances(utterance_duration_filepath,
-                   spk2gender,
                    gender,
-                   duration,
-                   lexicon,
-                   transcriptions,
+                   duration_limit,
+                   spk2gender,
+                   word2phones,
+                   utt2text,
                    utt2alignments):
     #print(duration)
     utterance2duration = {}  
@@ -324,29 +336,34 @@ def get_utterances(utterance_duration_filepath,
 
 
     curr_duration = 0
-    utterances = []
+    utterances = set()
     spks = set()
     # Get a random selection of utterances <= a duration limit
     shuffled_utterances = (list(utterance2duration.keys()))
     random.shuffle(shuffled_utterances)
     for utterance in shuffled_utterances:
         lex_word = True
+        # Ensure we have a phonization of all words
         for word in transcriptions[utterance]:
-            if word not in lexicon:
+            if word not in word2phones:
                 lex_word = False
-                continue
-        if utterance not in utt2alignments:
-            print("NO ALIGNMENTS!" + utterance)
-            
+                break
+        # Ensure we have:
+        # 1. Alignment
+        # 2. A phonization
         if (utterance in utt2alignments and 
-            lex_word and 
-            duration and 
-            (curr_duration + utterance2duration[utterance]) <= duration):
-            utterances.append(utterance)
-            spks.add('-'.join(utterance.split('-')[0:-1]))
-            curr_duration += utterance2duration[utterance]
-            print("ALIGNMENTS: " + utterance)
-
+            lex_word):
+            # Ensure that we haven't hit our max duration
+            if ((duration_limit and 
+                 (curr_duration + utterance2duration[utterance]) 
+                  <= duration_limit) or
+                not duration_limit):
+                utterances.add(utterance)
+                spks.add('-'.join(utterance.split('-')[0:-1]))
+                curr_duration += utterance2duration[utterance]
+    utterance2duration = {utterance: duration 
+                          for utterance, duration in utterance2duration.items()
+                          if utterance in utterances}
     return utterances, spks, utterance2duration, curr_duration
 
 def copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath):
@@ -365,6 +382,38 @@ def get_utterance_dirs(utterance):
     # TODO: Fix utterance_dirs to be tuple
     utterance_dirs = os.path.join(*(utterance.split('-')[0:-1]))
     return utterance_dirs
+
+def get_tri_di_phones_alignments_from_utterance(nphone2idx, 
+                                                utterance_phones,
+                                                utterance_alignments):
+    '''
+    final_phones -- a dict containing indices for triphones and diphones recognized by the model
+    '''
+    idx = 0
+    utterance_tri_di_mono_phones = []
+    utterance_tri_di_mono_alignments = []
+    while idx < len(utt2phones[utterance]):
+        triphone = tuple(utterance_phones[idx:idx+3])
+        trialignments = tuple(utterance_alignments[idx:idx+3])
+        if triphone in nphone2idx:
+            utterance_tri_di_mono_phones.append(triphone)
+            utterance_tri_di_mono_alignments.append(trialignments)
+            idx += 2
+        else:
+            diphone = tuple(utterancephones[idx:idx+2])
+            dialignments = tuple(utterance_alignments[idx:idx+2])
+            if diphone in nphone2idx:
+                utterance_tri_di_mono_phones.append(diphone)
+                utterance_tri_di_mono_alignments.append(dialignments)
+                idx += 1
+            else:
+                monophone = tuple(utterancephones[idx+1:idx+2])
+                monoalignments = tuple(utterance_alignments[idx:idx+1])
+                if monophone in nphone2idx:
+                    utterance_tri_di_mono_phones.append(monophone)
+                    utterance_tri_di_mono_alignments.append(monoalignments)
+    return utterance_tri_di_mono_phones, utterance_tri_di_mono_alignments
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
