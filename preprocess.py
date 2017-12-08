@@ -210,9 +210,13 @@ def get_target_feats(utterance_wav, alignments):
     #print(duration)
 
     #print(phone_samples)
-    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='f0')
-    f_0_init = np.mean(f_0[:math.ceil(f_0.size/3)])
-    f_0_end = np.mean(f_0[2*math.floor(f_0.size/3):])
+    try:
+        f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='f0')
+        f_0_init = np.mean(f_0[:math.ceil(f_0.size/3)])
+        f_0_end = np.mean(f_0[2*math.floor(f_0.size/3):])
+    except IndexError:
+        # For "Index Error: Out of bounds on buffer access (axis 0)
+
 
     #mfcc = pysptk.mfcc(samples)
 
