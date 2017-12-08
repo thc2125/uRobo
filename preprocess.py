@@ -5,7 +5,7 @@ import os
 import random
 import shutil
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 from pathlib import Path
 
 import numpy as np
@@ -25,7 +25,9 @@ transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
 utt2phones_filename = 'utt2phone'
 utt2alignments_filename = 'utt2alignments'
-
+mono_di_tri_phones_filename = 'mono_di_tri_phones'
+utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
+utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_alignments'
 target_feats_filename = 'target_feats'
 concat_feats_filename = 'concat_feats'
 
@@ -34,30 +36,46 @@ female = 'f'
 
 fs=16000
 
-def preprocess(orig_dirpath, processed_dirpath, duration=float('inf'), gender=None):
+def preprocess(orig_dirpath, processed_dirpath, duration_limit=float('inf'), gender=None):
 
     if not processed_dirpath.exists():
         processed_dirpath.mkdir(parents=True)
 
     utterances = copy_base_data(orig_dirpath, 
                                 processed_dirpath, 
-                                duration=duration,
+                                duration_limit=duration_limit,
                                 gender=gender)
 
     process_data(processed_dirpath, utterances)
 
 def copy_base_data(orig_dirpath, 
                    processed_dirpath, 
-                   duration=None,
+                   duration_limit=None,
                    gender=None):
+    print("GENDER: " + gender)
+    spk2gender = get_spk2gender((orig_dirpath / (spk2gender_filename + '.txt')))
+    # JSONize spk2gender
+    with (processed_dirpath / (spk2gender_filename + '.json')).open('w') as spk2gender_file:
+        json.dump(spk2gender, spk2gender_file, indent=4)
 
-    spk2gender = get_gender((orig_dirpath / (spk2gender_filename + '.txt')))
+
     idx2phones, phones2idx = get_phones((orig_dirpath / (phones_filename + '.txt')))
-    idx2vocab, vocab2idx = get_vocab((orig_dirpath / (vocabulary_filename + '.txt')))
-    word2phones = get_lexicon((orig_dirpath / (lexicon_filename + '.txt')))
+    # JSONize phone list
+    with (processed_dirpath / (phones_filename + '.json')).open('w') as phones_file:
+        json.dump(idx2phones, phones_file, indent=4)
 
-    utt2text = get_transcript((orig_dirpath / (transcriptions_filename +
-        '.txt')), lists=True)
+    idx2vocab, vocab2idx = get_vocab((orig_dirpath / (vocabulary_filename + '.txt')))
+    # JSONIze vocabulary
+    with (processed_dirpath / (vocabulary_filename + '.json')).open('w') as vocabulary_file:
+        json.dump(idx2vocab, vocabulary_file, indent=4)
+
+    word2phones = get_lexicon((orig_dirpath / (lexicon_filename + '.txt')))
+    # JSONIze lexicon
+    with (processed_dirpath / (lexicon_filename + '.json')).open('w') as lexicon_file:
+        json.dump(word2phones, lexicon_file, indent=4)
+
+    utt2words_all = get_transcriptions((orig_dirpath / (transcriptions_filename +
+        '.txt')))
 
     utt2phones_all, utt2alignments_all = get_alignments(
             orig_dirpath / (alignments_filename + '.txt'), 
@@ -65,53 +83,75 @@ def copy_base_data(orig_dirpath,
 
     utterances, spks, utterance2duration, curr_duration = get_utterances(
             (orig_dirpath / (utterance_duration_filename + '.txt')),
-            spk2gender, 
             gender,
-            duration,
-            lexicon,
-            transcriptions,
+            duration_limit,
+            spk2gender, 
+            word2phones,
+            utt2words_all,
             utt2alignments_all)
-
-
-    # Copy and convert audio from flac to wav
-    # TODO: Uncomment this!
-    #copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
-
-    # JSONize phone list
-    with (processed_dirpath / (phones_filename + '.json')).open('w') as phones_file:
-        json.dump(idx2phones, phones_file, indent=4)
-
-    # JSONIze vocabulary
-    with (processed_dirpath / (vocabulary_filename + '.json')).open('w') as vocabulary_file:
-        json.dump(idx2vocab, vocabulary_file, indent=4)
-
-    # JSONIze lexicon
-    with (processed_dirpath / (lexicon_filename + '.json')).open('w') as lexicon_file:
-        json.dump(word2phones, lexicon_file, indent=4)
-
     # JSONIze utterances
     with (processed_dirpath / (utterances_filename + '.json')).open('w') as utterance_file:
         json.dump(list(utterances), utterance_file, indent=4)
 
-    utt2text = {utterance: text 
-                for utterance, text in utt2text.items() 
-                if utterance in utterances_set}
-
+    # Create new transcripts and alignments
+    utt2words = {utterance: words
+                for utterance, words in utt2words_all.items() 
+                if utterance in utterances}
     with (processed_dirpath / (transcriptions_filename + '.json')).open('w') as transcriptions_file:
-        json.dump(utt2text, transcriptions_file, indent=4)
+        json.dump(utt2words, transcriptions_file, indent=4)
 
-    # JSONize spk2gender
-    with (processed_dirpath / (spk2gender_filename + '.json')).open('w') as spk2gender_file:
-        json.dump(spk2gender, spk2gender_file, indent=4)
-
-    # Get new alignments
-    utt2phones, utt2alignments = get_alignment_data(processed_dirpath / (alignments_filename + '.txt'), phones)
+    utt2phones = {utterance: phones 
+                  for utterance, phones in utt2phones_all.items()
+                  if utterance in utterances}
     #jsonize 
     with (processed_dirpath / (utt2phones_filename + '.json')).open('w') as utt2phones_file:
         json.dump(utt2phones, utt2phones_file, indent=4)
 
+
+    utt2alignments = {utterance: alignments
+                      for utterance, alignments in utt2text_all.items() 
+                      if utterance in utterances}
     with (processed_dirpath / (utt2alignments_filename + '.json')).open('w') as utt2alignments_file:
         json.dump(utt2alignments, utt2alignments_file, indent=4)
+
+
+    # Create metrics of diphones
+    diphone_counts = get_nphones(utt2phones, 2)
+    idx2diphones = [diphone 
+                for diphone, count in sorted(diphone_counts.items()) 
+                if ((count / len(diphone_counts)) > .01)]
+
+    # Create metrics of triphones
+    triphone_counts = get_nphones(utt2phones, 3)
+    idx2triphones = [triphone 
+                 for triphone, count in sorted(triphone_counts.items()) 
+                 if ((count / len(triphone_counts)) > .01)]
+
+    idx2mono_di_tri_phones = idx2phones + idx2diphones + idx2triphones
+    with (processed_dirpath / (mono_di_tri_phones_filename
+                               + '.json')).open('w') as mono_di_tri_phones_file:
+        json.dump(idx2mono_di_tri_phones, mono_di_tri_phones_file, indent=4)
+
+    mono_di_tri_phones2idx = {nphone : idx 
+                             for nphone, idx in idx2mono_di_tri_phones.items()}
+
+    utt2mono_di_tri_phones, utt2mono_di_tri_alignments = (
+            get_utterance2mono_di_tri_phones(utt2phones, 
+                                            utt2alignments,
+                                            mono_di_tri_phones2idx))
+
+    with (processed_dirpath / (utt2mono_di_tri_phones_filename
+                               + '.json')).open('w') as utt2mono_di_tri_phones_file:
+        json.dump(utt2mono_di_tri_phones, utt2mono_di_tri_phones_file, indent=4)
+
+    with (processed_dirpath / (utt2mono_di_tri_alignments_filename
+                               + '.json')).open('w') as utt2mono_di_tri_alignments_file:
+        json.dump(utt2mono_di_tri_alignments, utt2mono_di_tri_alignments_file, indent=4)
+
+    
+    # Copy and convert audio from flac to wav
+    # TODO: Uncomment this!
+    #copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
 
     return utterances
 
@@ -210,11 +250,11 @@ def get_target_feats(utterance_wav, alignments):
     #print(duration)
 
     #print(phone_samples)
-    try:
-        f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='f0')
-        f_0_init = np.mean(f_0[:math.ceil(f_0.size/3)])
-        f_0_end = np.mean(f_0[2*math.floor(f_0.size/3):])
-    except IndexError:
+    #try:
+    f_0 = pysptk.swipe(phone_samples.astype(np.float64), fs=fs, hopsize=100, otype='f0')
+    f_0_init = np.mean(f_0[:math.ceil(f_0.size/3)])
+    f_0_end = np.mean(f_0[2*math.floor(f_0.size/3):])
+    #except IndexError:
         # For "Index Error: Out of bounds on buffer access (axis 0)
 
 
@@ -304,6 +344,14 @@ def get_lexicon(filepath):
             word2phones[split_line[0]] = split_line[1:]
     return word2phones
 
+def get_transcriptions(filepath):
+    utt2words = {}
+    with filepath.open() as open_file:
+        for line in open_file:
+            split_line = line.split()
+            utt2words[split_line[0]] = split_line[1:]
+    return utt2words
+
 def get_alignments(alignments_filepath, idx2phones):
     utt2phones = defaultdict(list) 
     utt2alignments = defaultdict(list)
@@ -323,9 +371,9 @@ def get_utterances(utterance_duration_filepath,
                    duration_limit,
                    spk2gender,
                    word2phones,
-                   utt2text,
+                   utt2words,
                    utt2alignments):
-    #print(duration)
+    print(spk2gender)
     utterance2duration = {}  
     # Get utterances and durations, filtering by gender
     with utterance_duration_filepath.open() as utterance_duration_file:
@@ -348,7 +396,7 @@ def get_utterances(utterance_duration_filepath,
     for utterance in shuffled_utterances:
         lex_word = True
         # Ensure we have a phonization of all words
-        for word in transcriptions[utterance]:
+        for word in utt2words[utterance]:
             if word not in word2phones:
                 lex_word = False
                 break
@@ -387,36 +435,61 @@ def get_utterance_dirs(utterance):
     utterance_dirs = os.path.join(*(utterance.split('-')[0:-1]))
     return utterance_dirs
 
-def get_tri_di_phones_alignments_from_utterance(nphone2idx, 
-                                                utterance_phones,
-                                                utterance_alignments):
-    '''
-    final_phones -- a dict containing indices for triphones and diphones recognized by the model
-    '''
+def get_nphones(utt2phones, n):
+    nphone_counts = Counter()
+    for phones in utt2phones.values():
+        idx = 0
+        while idx+n < len(phones):
+            nphone = tuple(phones[idx:idx+n])
+            nphone_counts[nphone] += 1
+            idx += 1
+    return nphone_counts
+
+def get_utterance2mono_di_triphones(mono_di_tri_phones2idx,
+                                    utt2phones, 
+                                    utt2alignments):
+    utt2mono_di_tri_phones = {}
+    utt2mono_di_tri_alignments = {}
+    for utterance in utt2phones.keys():
+        utterance_mono_di_tri_phones, utterance_mono_di_tri_alignments = (
+                get_mono_di_tri_phones_alignments_from_utterance(
+                    mono_di_tri_phones2idx,
+                    utt2phones[utterance],
+                    utt2alignments[utterance]))
+        utt2mono_di_tri_phones[utterance] = utterance_mono_di_tri_phones
+        utt2mono_di_tri_alignments[utterance] = utterance_mono_di_tri_alignments
+        return utt2mono_di_tri_phones, utt2mono_di_tri_alignments
+
+
+def get_mono_di_tri_phones_alignments_from_utterance(nphone2idx, 
+                                                     utterance_phones,
+                                                     utterance_alignments):
     idx = 0
-    utterance_tri_di_mono_phones = []
-    utterance_tri_di_mono_alignments = []
+    utterance_mono_di_tri_phones = []
+    utterance_mono_di_tri_alignments = []
     while idx < len(utt2phones[utterance]):
         triphone = tuple(utterance_phones[idx:idx+3])
-        trialignments = tuple(utterance_alignments[idx:idx+3])
+        trialignments = (utterance_alignments[idx],utterance_alignments[idx+3])
         if triphone in nphone2idx:
-            utterance_tri_di_mono_phones.append(triphone)
-            utterance_tri_di_mono_alignments.append(trialignments)
+            utterance_mono_di_tri_phones.append(triphone)
+            utterance_mono_di_tri_alignments.append(trialignments)
             idx += 2
         else:
             diphone = tuple(utterancephones[idx:idx+2])
-            dialignments = tuple(utterance_alignments[idx:idx+2])
+            dialignments = (utterance_alignments[idx],utterance_alignments[idx+2])
             if diphone in nphone2idx:
-                utterance_tri_di_mono_phones.append(diphone)
-                utterance_tri_di_mono_alignments.append(dialignments)
+                utterance_mono_di_tri_phones.append(diphone)
+                utterance_mono_di_tri_alignments.append(dialignments)
                 idx += 1
             else:
                 monophone = tuple(utterancephones[idx+1:idx+2])
-                monoalignments = tuple(utterance_alignments[idx:idx+1])
+                monoalignments = tuple(utterance_alignments[idx])
                 if monophone in nphone2idx:
-                    utterance_tri_di_mono_phones.append(monophone)
-                    utterance_tri_di_mono_alignments.append(monoalignments)
-    return utterance_tri_di_mono_phones, utterance_tri_di_mono_alignments
+                    utterance_mono_di_tri_phones.append(monophone)
+                    utterance_mono_di_tri_alignments.append(monoalignments)
+                else:
+                    raise KeyError('Bad phone: ' + monophone)
+    return utterance_mono_di_tri_phones, utterance_mono_di_tri_alignments
 
 
 if __name__ == '__main__':
@@ -429,7 +502,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main_args = {'orig_dirpath':args.data_dir, 'processed_dirpath':args.normalized_dir}
     if args.dur_limit:
-        main_args['duration']=args.dur_limit
+        main_args['duration_limit']=args.dur_limit
     if args.gender:
         main_args['gender']=args.gender
 
