@@ -27,9 +27,16 @@ utt2phones_filename = 'utt2phone'
 utt2alignments_filename = 'utt2alignments'
 mono_di_tri_phones_filename = 'mono_di_tri_phones'
 utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
-utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_alignments'
+utt2mono_di_tri_alignments_filename = 'utt2mono_di_tri_alignments'
+utt2target_feats_filename = 'utt2target_feats'
 target_feats_filename = 'target_feats'
+utt2concat_feats_filename = 'utt2concat_feats'
 concat_feats_filename = 'concat_feats'
+target_feats_mean_filename = 'target_feats_mean'
+concat_feats_mean_filename  = 'concat_feats_mean'
+target_feats_std_filename = 'target_feats_std'
+concat_feats_std_filename  = 'concat_feats_std'
+
 
 male = 'm'
 female = 'f'
@@ -45,8 +52,9 @@ def preprocess(orig_dirpath, processed_dirpath, duration_limit=float('inf'), gen
                                 processed_dirpath, 
                                 duration_limit=duration_limit,
                                 gender=gender)
+    data = load_data(processed_dirpath)
 
-    process_data(processed_dirpath, utterances)
+    process_data(processed_dirpath, list(utterances), *data)
 
 def copy_base_data(orig_dirpath, 
                    processed_dirpath, 
@@ -109,7 +117,7 @@ def copy_base_data(orig_dirpath,
 
 
     utt2alignments = {utterance: alignments
-                      for utterance, alignments in utt2text_all.items() 
+                      for utterance, alignments in utt2alignments_all.items() 
                       if utterance in utterances}
     with (processed_dirpath / (utt2alignments_filename + '.json')).open('w') as utt2alignments_file:
         json.dump(utt2alignments, utt2alignments_file, indent=4)
@@ -127,18 +135,18 @@ def copy_base_data(orig_dirpath,
                  for triphone, count in sorted(triphone_counts.items()) 
                  if ((count / len(triphone_counts)) > .01)]
 
-    idx2mono_di_tri_phones = idx2phones + idx2diphones + idx2triphones
+    idx2mono_di_tri_phones = [tuple([phone]) for phone in idx2phones] + idx2diphones + idx2triphones
     with (processed_dirpath / (mono_di_tri_phones_filename
                                + '.json')).open('w') as mono_di_tri_phones_file:
         json.dump(idx2mono_di_tri_phones, mono_di_tri_phones_file, indent=4)
 
-    mono_di_tri_phones2idx = {nphone : idx 
-                             for nphone, idx in idx2mono_di_tri_phones.items()}
+    mono_di_tri_phones2idx = {idx2mono_di_tri_phones[idx] : idx 
+                             for idx in range(len(idx2mono_di_tri_phones))}
 
     utt2mono_di_tri_phones, utt2mono_di_tri_alignments = (
-            get_utterance2mono_di_tri_phones(utt2phones, 
-                                            utt2alignments,
-                                            mono_di_tri_phones2idx))
+            get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
+                                             utt2phones, 
+                                             utt2alignments))
 
     with (processed_dirpath / (utt2mono_di_tri_phones_filename
                                + '.json')).open('w') as utt2mono_di_tri_phones_file:
@@ -155,73 +163,132 @@ def copy_base_data(orig_dirpath,
 
     return utterances
 
-def process_data(processed_dirpath, utterances):
+def load_data(processed_dirpath):
+    with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
+        idx2vocabulary = json.load(vocab_file)
+    vocabulary2idx = {idx2vocabulary[idx]: idx 
+                      for idx in range(len(idx2vocabulary))}
+
+    with (processed_dirpath / (phones_filename + '.json')).open() as phones_file:
+        idx2phones = json.load(phones_file)
+    phones2idx = {idx2phones[idx]: idx 
+                      for idx in range(len(idx2phones))}
+    
+    with (processed_dirpath / (mono_di_tri_phones_filename + '.json')).open() as mono_di_tri_phones_file:
+        idx2mono_di_tri_phones = json.load(mono_di_tri_phones_file)
+    mono_di_tri_phones2idx = {tuple(idx2mono_di_tri_phones[idx]): idx 
+                              for idx in range(len(idx2phones))}
+
+
+    with (processed_dirpath / (transcriptions_filename + '.json')).open() as transcriptions_file:
+        utt2words = json.load(transcriptions_file)
     with (processed_dirpath / (utt2phones_filename + '.json')).open() as utt2phones_file:
         utt2phones=json.load(utt2phones_file)
     with (processed_dirpath / (utt2alignments_filename + '.json')).open() as utt2alignments_file:
         utt2alignments=json.load(utt2alignments_file)
+    with (processed_dirpath / (utt2mono_di_tri_phones_filename + '.json')).open() as utt2mono_di_tri_phones_file:
+        utt2mono_di_tri_phones=json.load(utt2mono_di_tri_phones_file)
+    with (processed_dirpath / (utt2mono_di_tri_alignments_filename + '.json')).open() as utt2mono_di_tri_alignments_file:
+        utt2mono_di_tri_alignments=json.load(utt2mono_di_tri_alignments_file)
 
-    with (processed_dirpath / (transcriptions_filename + '.json')).open() as transcriptions_file:
-        transcriptions = json.load(transcriptions_file)
+    return (idx2vocabulary, 
+            vocabulary2idx, 
+            idx2phones, 
+            phones2idx, 
+            idx2mono_di_tri_phones, 
+            mono_di_tri_phones2idx, 
+            utt2words,
+            utt2phones, 
+            utt2alignments, 
+            utt2mono_di_tri_phones,
+            utt2mono_di_tri_alignments)
 
-    with (processed_dirpath / (phones_filename + '.json')).open() as phones_file:
-        idx2phones = json.load(phones_file)
-
-    phones2idx = {idx2phones[idx]: idx 
-                      for idx in range(len(idx2phones))}
-    with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
-        idx2vocabulary = json.load(vocab_file)
-
-    vocabulary2idx = {idx2vocabulary[idx]: idx 
-                      for idx in range(len(idx2vocabulary))}
+def process_data(processed_dirpath,
+                 utterances,
+                 idx2vocabulary, 
+                 vocabulary2idx, 
+                 idx2phones, 
+                 phones2idx, 
+                 idx2mono_di_tri_phones, 
+                 mono_di_tri_phones2idx, 
+                 utt2words,
+                 utt2phones, 
+                 utt2alignments, 
+                 utt2mono_di_tri_phones,
+                 utt2mono_di_tri_alignments):
 
     word_list = []
     phones_list = []
-    maxuttlen = max([len(utterance) for utterance in transcriptions.values()])
-    maxphonelen = max([len(phones) for phones in utt2alignments.values()])
+    maxuttlen = max([len(words) for words in utt2words.values()])
+    maxphonelen = max([len(phones) for phones in utt2phones.values()])
 
     for idx in range(len(utterances)):
-        word_list.append(np.pad([vocabulary2idx[word] for word in transcriptions[utterances[idx]]],(0, maxuttlen - len(transcriptions[utterances[idx]])), 'constant'))
-        phones_list.append(np.pad([phones2idx[phone] for phone in utt2phones[utterances[idx]]],(0, maxphonelen - len(utt2phones[utterances[idx]])), 'constant'))
+        word_list.append(np.pad([vocabulary2idx[word] for word in utt2words[utterances[idx]]], 
+                                (0, maxuttlen - len(utt2words[utterances[idx]])), 
+                                'constant'))
+        phones_list.append(np.pad([phones2idx[phone] for phone in utt2phones[utterances[idx]]],
+                                  (0, maxphonelen - len(utt2phones[utterances[idx]])),
+                                  'constant'))
 
     np_word_list=np.stack(word_list)
-    np.save(str(processed_dirpath / (transcriptions_filename + '.npy')), word_list, allow_pickle=False)
+    np.save(str(processed_dirpath / (transcriptions_filename + '.npy')), 
+            word_list, 
+            allow_pickle=False)
     np_phones_list=np.stack(phones_list)
-    np.save(str(processed_dirpath / (utt2phones_filename + '.npy')), phones_list, allow_pickle=False)
-
+    np.save(str(processed_dirpath / (utt2phones_filename + '.npy')), 
+            phones_list, 
+            allow_pickle=False)
 
     # Get the features of each utterance
     print("UTTS")
     print(utterances)
     utterance_wavs = get_utterance_wavs(processed_dirpath, utterances)
-    utterance2target_feats=[]
-    utterance2concat_feats=[]
+    utt2target_feats=defaultdict(list)
+    utt2concat_feats=defaultdict(list)
 
     for utterance in utterances:
-        utterance2target_feats.append([])
-        utterance2concat_feats.append([])
         for alignment in utt2alignments[utterance]:
             target_feats = get_target_feats(utterance_wavs[utterance], alignment)
             # For now, just get rid of duration.
             concat_feats = target_feats[1:]
             #concat_feats = get_concat_feats(utterance_wavs[utterance], alignment)
-            utterance2target_feats[-1].append(target_feats)
-            utterance2concat_feats[-1].append(concat_feats)
+            utt2target_feats[utterance].append(target_feats)
+            utt2concat_feats[utterance].append(concat_feats)
 
-    pad_utterance2target_feats = [np.pad(feats, ((0, maxphonelen-len(feats)), (0, 0)), 'constant')
-                                  for feats in utterance2target_feats]
+    with (processed_dirpath / (utt2target_feats_filename + '.json')).open('w') as utt2target_feats_file:
+        json.dump(utt2target_feats, utt2target_feats_file)
+    with (processed_dirpath / (utt2concat_feats_filename + '.json')).open('w') as utt2concat_feats_file:
+        json.dump(utt2concat_feats, utt2concat_feats_file)
 
-    pad_utterance2concat_feats = [np.pad(feats, ((0, maxphonelen-len(feats)), (0,0)), 'constant')
-                                  for feats in utterance2concat_feats]
-    np_utterance2target_feats = np.stack(pad_utterance2target_feats)
-    np.save(str(processed_dirpath / target_feats_filename), np_utterance2target_feats, allow_pickle=False)
-    np_utterance2concat_feats = np.stack(pad_utterance2concat_feats)
-    np.save(str(processed_dirpath / concat_feats_filename), np_utterance2concat_feats, allow_pickle=False)
+    np_target_feats = np.stack([np.pad(feats, 
+                                       ((0, maxphonelen-len(feats)), 
+                                        (0, 0)), 
+                                       'constant')
+                                for feats in utt2target_feats.values()])
+    np.save(str(processed_dirpath / (target_feats_filename + '_raw.npy')), np_target_feats, allow_pickle=False)
+    np_target_feats_mean = np.mean(np.reshape(np_target_feats, (-1,4)))
+    np_target_feats_std = np.std(np.reshape(np_target_feats, (-1,4)))
+    np_target_feats_normalized = (np_target_feats - np_target_feats_mean) / np_target_feats_std
+    np.save(str(processed_dirpath / (target_feats_mean_filename + '.npy')), np_target_feats_mean, allow_pickle=False)
+    np.save(str(processed_dirpath / (target_feats_std_filename + '.npy')), np_target_feats_std, allow_pickle=False)
+    np.save(str(processed_dirpath / (target_feats_filename + '_normalized.npy')), np_target_feats_normalized, allow_pickle=False)
 
-    '''
-    np_utterance2concat_feats = np.stack(utterance2concat_feats)
-    np.save(str(processed_dirpath / concat_feats_filename), np_utterance2concat_feats, allow_pickle=False)
-    '''
+
+    np_concat_feats = np.stack([np.pad(feats, 
+                                       ((0, maxphonelen-len(feats)), 
+                                        (0, 0)), 
+                                       'constant')
+                                for feats in utt2concat_feats.values()])
+    np.save(str(processed_dirpath / (concat_feats_filename + '_raw.npy')), np_concat_feats, allow_pickle=False)
+    np_concat_feats_mean = np.mean(np.reshape(np_concat_feats, (-1,3)))
+    np_concat_feats_std = np.std(np.reshape(np_concat_feats, (-1,3)))
+    np_concat_feats_normalized = (np_concat_feats - np_concat_feats_mean) / np_concat_feats_std
+    np.save(str(processed_dirpath / (concat_feats_mean_filename + '.npy')), np_concat_feats_mean, allow_pickle=False)
+    np.save(str(processed_dirpath / (concat_feats_std_filename + '.npy')), np_concat_feats_std, allow_pickle=False)
+
+
+    np.save(str(processed_dirpath / (concat_feats_filename + '_normalized.npy')), np_concat_feats_normalized, allow_pickle=False)
+
 def get_target_feats(utterance_wav, alignments):
     #phone_start = int(alignments[0] * fs)
     phone_start = alignments[0]
@@ -445,9 +512,9 @@ def get_nphones(utt2phones, n):
             idx += 1
     return nphone_counts
 
-def get_utterance2mono_di_triphones(mono_di_tri_phones2idx,
-                                    utt2phones, 
-                                    utt2alignments):
+def get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
+                                     utt2phones, 
+                                     utt2alignments):
     utt2mono_di_tri_phones = {}
     utt2mono_di_tri_alignments = {}
     for utterance in utt2phones.keys():
@@ -467,28 +534,36 @@ def get_mono_di_tri_phones_alignments_from_utterance(nphone2idx,
     idx = 0
     utterance_mono_di_tri_phones = []
     utterance_mono_di_tri_alignments = []
-    while idx < len(utt2phones[utterance]):
-        triphone = tuple(utterance_phones[idx:idx+3])
-        trialignments = (utterance_alignments[idx],utterance_alignments[idx+3])
-        if triphone in nphone2idx:
-            utterance_mono_di_tri_phones.append(triphone)
-            utterance_mono_di_tri_alignments.append(trialignments)
-            idx += 2
-        else:
-            diphone = tuple(utterancephones[idx:idx+2])
-            dialignments = (utterance_alignments[idx],utterance_alignments[idx+2])
+    print(utterance_alignments)
+    while idx < len(utterance_phones):
+        if idx + 2 < len(utterance_phones):
+            triphone = tuple(utterance_phones[idx:idx+3])
+            print(utterance_alignments[idx])
+            trialignments = tuple((utterance_alignments[idx][0],utterance_alignments[idx+2][-1]))
+            if triphone in nphone2idx:
+                utterance_mono_di_tri_phones.append(triphone)
+                utterance_mono_di_tri_alignments.append(trialignments)
+                idx += 2
+                continue
+        if idx + 1 < len(utterance_phones):
+            diphone = tuple(utterance_phones[idx:idx+2])
+            dialignments = tuple((utterance_alignments[idx][0],utterance_alignments[idx+1][-1]))
             if diphone in nphone2idx:
                 utterance_mono_di_tri_phones.append(diphone)
                 utterance_mono_di_tri_alignments.append(dialignments)
                 idx += 1
-            else:
-                monophone = tuple(utterancephones[idx+1:idx+2])
-                monoalignments = tuple(utterance_alignments[idx])
-                if monophone in nphone2idx:
-                    utterance_mono_di_tri_phones.append(monophone)
-                    utterance_mono_di_tri_alignments.append(monoalignments)
-                else:
-                    raise KeyError('Bad phone: ' + monophone)
+                continue
+
+        # We go ahead and add the overlapping monophone for (arguably) better smoothing
+        monophone = tuple(utterance_phones[idx:idx+1])
+        monoalignments = tuple(utterance_alignments[idx])
+        if monophone in nphone2idx:
+            utterance_mono_di_tri_phones.append(monophone)
+            utterance_mono_di_tri_alignments.append(monoalignments)
+            idx += 1
+
+        else:
+            raise KeyError('Bad phone: ' + str(monophone))
     return utterance_mono_di_tri_phones, utterance_mono_di_tri_alignments
 
 
