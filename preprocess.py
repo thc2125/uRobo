@@ -221,13 +221,14 @@ def process_data(processed_dirpath,
     phones_list = []
     maxuttlen = max([len(words) for words in utt2words.values()])
     maxphonelen = max([len(phones) for phones in utt2phones.values()])
+    print(mono_di_tri_phones2idx)
 
     for idx in range(len(utterances)):
         word_list.append(np.pad([vocabulary2idx[word] for word in utt2words[utterances[idx]]], 
                                 (0, maxuttlen - len(utt2words[utterances[idx]])), 
                                 'constant'))
-        phones_list.append(np.pad([phones2idx[phone] for phone in utt2phones[utterances[idx]]],
-                                  (0, maxphonelen - len(utt2phones[utterances[idx]])),
+        phones_list.append(np.pad([mono_di_tri_phones2idx[tuple(phone)] for phone in utt2mono_di_tri_phones[utterances[idx]]],
+                                  (0, maxphonelen - len(utt2mono_di_tri_phones[utterances[idx]])),
                                   'constant'))
 
     np_word_list=np.stack(word_list)
@@ -235,7 +236,7 @@ def process_data(processed_dirpath,
             word_list, 
             allow_pickle=False)
     np_phones_list=np.stack(phones_list)
-    np.save(str(processed_dirpath / (utt2phones_filename + '.npy')), 
+    np.save(str(processed_dirpath / (utt2mono_di_tri_phones_filename + '.npy')), 
             phones_list, 
             allow_pickle=False)
 
@@ -247,7 +248,7 @@ def process_data(processed_dirpath,
     utt2concat_feats=defaultdict(list)
 
     for utterance in utterances:
-        for alignment in utt2alignments[utterance]:
+        for alignment in utt2mono_di_tri_alignments[utterance]:
             target_feats = get_target_feats(utterance_wavs[utterance], alignment)
             # For now, just get rid of duration.
             concat_feats = target_feats[1:]
