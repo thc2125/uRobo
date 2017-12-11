@@ -1,4 +1,10 @@
-import scipy.io.wavfile
+from collections import defaultdict
+from pathlib import Path
+
+from scipy.io import wavfile
+
+import preprocess
+import utils
 
 from t2s.concatenative_model.nn import NN
 
@@ -9,139 +15,256 @@ import numpy as np
 # to be more smooth?
 
 class NNConcatenator():
+    '''Creates a concatenative speech synthesizer using a neural network for 
+    target prediction'''
+
     fs=16000
     def __init__(self, 
-                 word2phones,
-                 phone2idx,
-                 idx2phone,
-                 utterance2idx,
-                 idx2utterance,
-                 utterance_phones,
-                 utterance_feats,
-                 phone2units,
-                 alignments):
-        self.target_predicter = NN(model_path)
-        self.phone2idx = phone2idx
-        self.idx2phone = idx2phone
-        self.word2phones = word2phones
-        self.utterance2idx = utterance2idx
-        self.idx2utterance = idx2utterance
-        self.utterance_phones = utterance_phones
-        self.utterance_target_feats = utterance_target_feats
-        self.utterance_concat_feats = utterance_concat_feats
-        self.phone2units = phone2units
-        self.alignments = alignments
+                 data_dir,
+                 target_predicter_model_path):
+        ''' Initializes the synthesizer
+        Keyword Arguments
+        data_dir -- directory to the audio data and appropriate data structures
+        target_predicter_model_path -- the path to the neural network model for prediction
+        '''
+        (self.idx2vocabulary, 
+         self.vocabulary2idx, 
+         self.idx2phones, 
+         self.phones2idx, 
+         self.idx2mono_di_tri_phones, 
+         self.mono_di_tri_phones2idx, 
+         self.utt2words,
+         self.utt2phones, 
+         self.utt2alignments, 
+         self.utt2mono_di_tri_phones,
+         self.utt2mono_di_tri_alignments) = utils.load_data(data_dir)
 
-    def train(self, ):
-        self.target_predicter.train()
+        self.word2phones = utils.load_json(data_dir / (utils.lexicon_filename + '.json'))
+
+        self.phone2units = self._get_phone2units()
+        self.target_predicter = NN(model_path=target_predicter_model_path)
+
+        self.data_dir = data_dir
+        
+        (self.utt2target_feats, 
+         self.target_feats_mean, 
+         self.target_feats_std) = utils.load_target_feats(data_dir)
+
+        (self.utt2concat_feats, 
+         self.concat_feats_mean, 
+         self.concat_feats_std) = utils.load_concat_feats(data_dir)
 
     def generate(self, text, output_path=Path('./synth.wav')):
+        # Get the phone sequence of the text
+        # The current version of the synthesizer uses triphones with 1-phone 
+        # overlap, with diphone and monophone backoff
+        phone_sequence = self._get_phone_sequence(text)
 
-        candidates, target_feats = self._get_unit_context(text)
+        # Get the candidates and a final phone sequence (in case no units 
+        # exist in the data for a phone unit-TODO)
+        phone_sequence, candidates = self._get_candidates(phone_sequence)
 
-        # Initialize the Viterbi matrix
+        # Get the target features for the phones
+        # Note that the neural network outputs values that ostensibly have 
+        # been feature scaled
+        phone_target_feats_fs = self._get_target_feats(phone_sequence)[0]
+
+        # Begin viterbi.
+        # Initialize the Viterbi matrices
         cost_matrix = [[]]
         back_matrix = [[]]
-        beg_sil_target_feats=target_feats[0]
-        for sil_candidate_unit in candidates[0]:
+        beg_target_feats=phone_target_feats_fs[0]
+        for candidate_unit_idx in range(len(candidates[0])):
             # For this round, we're only looking for the target cost
             # These are silence candidates
-            sil_candidate_unit_feats = (
+            candidate_unit = candidates[0][candidate_unit_idx]
+            candidate_unit_feats = (
                 np.array(
-                    utterance_target_feats[sil_candidate_unit[0]][sil_candidate_unit[1]]))
+                    self.utt2target_feats[candidate_unit[0]][candidate_unit[1]]))
+            candidate_unit_feats_fs = ((candidate_unit_feats
+                                        - self.target_feats_mean) 
+                                       / self.target_feats_std)
             # Sum of the absolute difference of all the features
             # TODO: Add weights for each feature?
-            c_t = np.sum(np.fabs(np.diff(sil_candidate_unit_feats, beg_sil_target_feats)))
+            c_t = np.sum(np.fabs(np.subtract(candidate_unit_feats_fs, beg_target_feats)))
             cost_matrix[0].append(c_t)
-
+            back_matrix[0].append(candidate_unit_idx)
         # Now run the DP algorithm for the remaining candidates
-        for idx in range(1, len(candidates[1:])):
+        for idx in range(1, len(candidates)):
+            cost_matrix.append([])
             back_matrix.append([])
             candidate = candidates[idx]
-            target_unit_feats = target_feats[idx]
+            unit_target_feats_fs = phone_target_feats_fs[idx]
             for candidate_unit in candidate:
-                candidate_unit_feats = np.array(
-                    utterance_target_feats[candidate_unit[0]][candidate_unit[1]])
-                c_t = np.sum(np.fabs(np.diff(candidate_unit_feats,
-                                             target_unit_feats)))
+                candidate_unit_target_feats = np.array(
+                    self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
+                candidate_unit_target_feats_fs = ((candidate_unit_target_feats
+                                                   - self.target_feats_mean) 
+                                                  / self.target_feats_std)
+
+                c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
+                                                 unit_target_feats_fs)))
                 # Get the concatenation cost from previous units
                 c_c = float('inf')
-                c_c_idx = 0
-                # Reset our features to exclude duration
-                candidate_unit_feats = candidate_unit_feats[1:]
-                for prev_candidate_unit_idx in len(candidate_units[idx-1]):
+                prev_idx = 0
+                # Reset our features to exclude duration and initial f_0
+                candidate_unit_concat_feats = candidate_unit_target_feats[2:]
+                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats
+                                                   - self.target_feats_mean[2:])
+                                                  / self.target_feats_std[2:])
+
+                for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
                     # concatenation?
-                    prev_candidate_unit = candidate_units[idx-1][prev_candidate_unit_idx]
+                    prev_candidate_unit = candidates[idx-1][prev_candidate_unit_idx]
 
-                    prev_candidate_unit_feats = np.array(
-                            utterance_target_feats[prev_candidate_unit[0]][prev_candidate_unit[1]][1:])
-                    cand_c_c = np.sum(np.fabs(np.diff(candidate_unit_feats,
-                                                      prev_candidate_unit_feats)))
-                    if cand_c_c < c_c:
-                        c_c = cand_c_c
-                        c_c_idx = prev_candidate_unit_idx
-                C = c_t + c_c
-                back_matrix[idx].append(c_c_idx)
+                    #print(self.utt2phones[prev_candidate_unit[0]][prev_candidate_unit[1]])
+                    prev_candidate_unit_concat_feats = np.array(
+                            self.utt2target_feats[prev_candidate_unit[0]]
+                                                 [prev_candidate_unit[1]])[1::2]
+                    prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats
+                                                            - self.target_feats_mean[1::2])
+                                                           / self.target_feats_std[1::2])
+
+                    curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
+                                                          prev_candidate_unit_concat_feats_fs)))
+                    if curr_c_c < c_c:
+                        c_c = curr_c_c
+                        prev_idx = prev_candidate_unit_idx
+
+                C = c_t + c_c + cost_matrix[idx-1][prev_idx]
+                cost_matrix[idx].append(C)
+                back_matrix[idx].append(prev_idx)
+        candidate_lens = [len(candidates) for candidates in cost_matrix]
+        act_candidate_lens = [len(candidates) for candidates in candidates]
+        #print(candidate_lens)
+        #print(act_candidate_lens)
         # Now find the minimum of the last row
         final_C = float('inf')
-        final_C_idx = 0
-        for last_candidate_unit_idx in range(len(cost_matrix[-1])):
-            cand_final_C = cost_matrix[last_candidate_unit_idx]
+        final_unit_idx = 0
+        final_units = []
+        for candidate_unit_idx in range(len(cost_matrix[-1])):
+            cand_final_C = cost_matrix[-1][candidate_unit_idx]
             if cand_final_C < final_C:
                 final_C = cand_final_C
-                final_C_idx = last_candidate_unit_idx
-        candidate_unit_idx = final_c_idx
-        final_units = []
-        curr_idx = -1
-        while(curr_idx > -(len(back_matrix))):
-            final_units.append(candidate[curr_idx][candidate_unit_idx])
-            curr_idx -= 1
+                final_unit_idx = candidate_unit_idx
+
+        phone_idx = -1
+        back_idx = final_unit_idx
+        # Now go through the back table
+        while(phone_idx >= -(len(back_matrix))):
+            #print((phone_idx, back_idx))
+            final_units.append(candidates[phone_idx][back_idx])
+            back_idx = back_matrix[phone_idx][back_idx]
+            phone_idx -= 1
 
         final_units.reverse() 
+        final_units_phones = [self.utt2mono_di_tri_phones[utterance][idx] for utterance, idx in final_units]
+        print(final_units_phones)
+        print(phone_sequence)
         concatenation = self._concatenate(final_units)
         wavfile.write(str(output_path), self.fs, concatenation)
         return concatenation
 
+    def _get_phone2units(self):
+        phone2units = defaultdict(list)
+        for utterance in self.utt2phones:
+            for unit_idx in range(len(self.utt2mono_di_tri_phones[utterance])):
+                phone2units[tuple(self.utt2mono_di_tri_phones[utterance][unit_idx])].append(
+                        (utterance, unit_idx))
+        return phone2units
 
-
-
-    def _get_unit_context(self, text):
-        # TODO: Go straight from word to feature context?
+    def _get_phone_sequence(self, text):
         phones = self._get_phones(text)
-        target_feats = self.target_predicter.predict(phones)
-        candidates = self._get_candidates(phones)
-        return candidate_units, 
+        phone_sequence = self._get_mono_di_triphones_from_phones(phones)
+        return phone_sequence
 
     def _get_phones(self, text):
         #TODO: Get a better model for t2p (another neural model?)
-        # Start with the silence candidates
-        phone_idxs = [self.phone2units['SIL']]
+        # Start with the silence phone
+        phones = []
         for word in text.split():
-            phones = self.word2phones[word.upper()]
-            phone_idxs += [self.phone2idx[phone] for phone in phones]
-        # End with a final silence candidate
-        phone_idxs += [self.phone2units['SIL']]
-        return phone_idxs
+            phones += ['SIL']
+            phones += self.word2phones[word.upper()]
+            # Add silence between words
+        # End with a final silence
+        phones += ['SIL']
+        return phones
 
-    def _get_candidates(self, phone_idxs):
+    def _get_mono_di_triphones_from_phones(self, phones):
+        idx = 0
+        mono_di_tri_phones = []
+        while idx < len(phones):
+            # First try to get a triphone
+            if idx + 2 < len(phones):
+                triphone = tuple(phones[idx:idx+3])
+                if triphone in self.mono_di_tri_phones2idx:
+                    mono_di_tri_phones.append(triphone)
+                    idx += 2
+                    continue
+            # We weren't able to get a usable triphone, fall back to diphone
+            if idx + 1 < len(phones):
+                diphone = tuple(phones[idx:idx+2])
+                if diphone in self.mono_di_tri_phones2idx:
+                    mono_di_tri_phones.append(diphone)
+                    idx += 1
+                    continue
+
+            # If we couldn't get a usable diphone, get the monophone and move on
+            # Note that this monophone underlaps the previous phone tuple
+            monophone = tuple(phones[idx:idx+1])
+            if monophone in self.mono_di_tri_phones2idx:
+                mono_di_tri_phones.append(monophone)
+                idx += 1
+
+            else:
+                raise KeyError('Bad phone: ' + str(monophone))
+        return mono_di_tri_phones
+
+
+
+    def _get_candidates(self, phone_sequence):
+        # TODO: implement backoff
         candidates = []
-        for phone_idx in phone_idxs:
-            candidates.append(self.phone2units[phone_idx])
-        return candidates
+        for phones in phone_sequence:
+            print(phones)
+            if phones in self.phone2units:
+                candidates.append(self.phone2units[phones])
+            else:
+                raise KeyError('No candidate units for phones ' + str(phones))
+        return phone_sequence, candidates
 
-    def _get_target_feats(self, phone_idxs):
-        return self.target_predicter.predict(phone_idxs)
+    def _get_target_feats(self, phone_sequence):
+        idx_sequence = self._phone_seq2idxs(phone_sequence)
+        return self.target_predicter.predict(idx_sequence)
+
+    def _phone_seq2idxs(self, phone_seq):
+        idx_shape = self.target_predicter.get_input_length()
+        idx_sequence = np.pad([self.mono_di_tri_phones2idx[phones] 
+                               for phones in phone_seq], 
+                              (0, idx_shape-len(phone_seq)),
+                              mode='constant')
+        return idx_sequence.reshape(1, idx_shape)
 
     def _concatenate(self, final_units):
-        units = []
-        for unit_idxs in final_units:
-            utterance = idx2utterance[unit_idxs[0]]
+        unit_wavs = []
+        for utterance, unit_idx in final_units:
+            #print((utterance, unit_idx))
             utterance_dirs = preprocess.get_utterance_dirs(utterance)
-            unit_start, unit_end = alignments[utterance][unit_idxs[1]]
-            utterance_wav = wavfile.read(str(audio_dirpath
-                                             / utterance_dirs 
-                                             / (utterance + '.wav')))
-            units += utterance_wav[int(unit_start*self.fs):int(unit_end*self.fs)]
-        concatenation = np.concatenate(units)
+            alignments = self.utt2mono_di_tri_alignments[utterance][unit_idx]
+
+            _, utterance_wav = wavfile.read(str(self.data_dir
+                                            / utterance_dirs 
+                                            / (utterance + '.wav')))
+
+            unit_start = alignments[0][0]
+            unit_end = alignments[-1][1]
+            #print((unit_start, unit_end))
+
+            #print(utterance_wav.shape)
+            unit_wav = utterance_wav[unit_start:unit_end]
+            #print(unit_wav)
+            unit_wavs.append(unit_wav)
+        #print(unit_wavs)
+        concatenation = np.concatenate(unit_wavs)
         return concatenation
