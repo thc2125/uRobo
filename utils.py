@@ -97,49 +97,6 @@ def load_concat_feats(data_dir):
 
     return utt2concat_feats, concat_feats_mean, concat_feats_std
 
-def get_unitdicts(alignments_path):
-    # TODO: Parametrize fs
-    fs=16000
-
-    utterance2idx = {}
-    idx2utterance = []
-    utterance_phones = []
-    utterance_feats = []
-    phone2units = defaultdict(list)
-    alignments = []
-
-    with alignments_path.open() as alignments_file:
-        for line in alignments_file:
-            split_line = line.split()
-            utterance = split_line[0]
-            phone_idx = int(split_line[4])
-
-            spk = '-'.join(utterance.split('-')[0:-1])
-            utt_alignments = (int(float(split_line[2])*fs), int(float(split_line[2])*fs + float(split_line[3])*fs))
-
-            if utterance not in utterance2idx:
-                utterance2idx[utterance] = len(utterance_phones)
-                idx2utterance.append(utterance)
-                utterance_phones.append([])
-                alignments.append([])
-
-            utterance_idx = utterance2idx[utterance]
-
-            unit_idx = len(utterance_phones[utterance_idx])
-            utterance_phones[utterance_idx].append(phone_idx)
-
-            phone2units[phone_idx].append((utterance_idx, unit_idx))
-
-            alignments[utterance_idx].append(utt_alignments)
-
-        return (utterance2idx,
-                idx2utterance,
-                utterance_phones,
-                utterance_feats,
-                phone2unit,
-                alignments)
-
-
 def get_word2phones(lexicon_path):
     word2phones = {}
     dupes = 0
@@ -167,4 +124,16 @@ def get_phone2idx(phones_path):
             idx2phone[idx]=phone
     return phone2idx, idx2phone
 
+def cross_fade(samples1, samples2):
+    if len(samples1) < len(samples2):
+        new_samples = np.add(np.pad(samples1, 
+                                    (0, len(samples2)-len(samples1)), mode='constant'),
+                             samples2)
+    else:
+        new_samples = np.add(np.pad(samples2, 
+                                    (len(samples1)-len(samples2), 0), 
+                                    mode='constant'),
+                             samples1)
+    #new_samples = np.concatenate([samples1, samples2])
+    return new_samples
 

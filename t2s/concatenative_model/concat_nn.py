@@ -98,9 +98,9 @@ class NNConcatenator():
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
-                candidate_unit_target_feats_fs = ((candidate_unit_target_feats
-                                                   - self.target_feats_mean) 
-                                                  / self.target_feats_std)
+                candidate_unit_target_feats_fs = ((candidate_unit_target_feats))
+                                                   #- self.target_feats_mean) 
+                                                  #/ self.target_feats_std)
 
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
                                                  unit_target_feats_fs)))
@@ -109,9 +109,9 @@ class NNConcatenator():
                 prev_idx = 0
                 # Reset our features to exclude duration and initial f_0
                 candidate_unit_concat_feats = candidate_unit_target_feats[2:]
-                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats
-                                                   - self.target_feats_mean[2:])
-                                                  / self.target_feats_std[2:])
+                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats))
+                                                   #- self.target_feats_mean[2:])
+                                                  #/ self.target_feats_std[2:])
 
                 for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
@@ -122,9 +122,9 @@ class NNConcatenator():
                     prev_candidate_unit_concat_feats = np.array(
                             self.utt2target_feats[prev_candidate_unit[0]]
                                                  [prev_candidate_unit[1]])[1::2]
-                    prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats
-                                                            - self.target_feats_mean[1::2])
-                                                           / self.target_feats_std[1::2])
+                    prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats))
+                                                            #- self.target_feats_mean[1::2])
+                                                           #/ self.target_feats_std[1::2])
 
                     curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
                                                           prev_candidate_unit_concat_feats_fs)))
@@ -248,6 +248,7 @@ class NNConcatenator():
 
     def _concatenate(self, final_units):
         unit_wavs = []
+        join_phones = False
         for utterance, unit_idx in final_units:
             #print((utterance, unit_idx))
             utterance_dirs = preprocess.get_utterance_dirs(utterance)
@@ -257,14 +258,33 @@ class NNConcatenator():
                                             / utterance_dirs 
                                             / (utterance + '.wav')))
 
-            unit_start = alignments[0][0]
-            unit_end = alignments[-1][1]
+            phones = []
+            for phone in alignments:
+                phone_start = alignments[0][0]
+                phone_end = alignments[0][1]
+                phones.append(utterance_wav[phone_start:phone_end])
+
+            if join_phones:
+                unit_wavs[-1] = utils.cross_fade(unit_wavs[-1], phones[0])
+                '''
+                else:
+                    unit_wavs[-1] = utils.cross_fade(unit_wavs[-1], phones[1])
+                '''
+                unit_wavs += phones[1:]
+            else:
+                unit_wavs += phones
+
+            if len(alignments) == 1:
+                join_phones = False
+            else:
+                join_phones = True
+
+
+
             #print((unit_start, unit_end))
 
             #print(utterance_wav.shape)
-            unit_wav = utterance_wav[unit_start:unit_end]
             #print(unit_wav)
-            unit_wavs.append(unit_wav)
         #print(unit_wavs)
         concatenation = np.concatenate(unit_wavs)
         return concatenation
