@@ -98,9 +98,9 @@ class NNConcatenator():
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
-                candidate_unit_target_feats_fs = ((candidate_unit_target_feats))
-                                                   #- self.target_feats_mean) 
-                                                  #/ self.target_feats_std)
+                candidate_unit_target_feats_fs = ((candidate_unit_target_feats
+                                                   - self.target_feats_mean) 
+                                                  / self.target_feats_std)
 
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
                                                  unit_target_feats_fs)))
@@ -122,9 +122,9 @@ class NNConcatenator():
                     prev_candidate_unit_concat_feats = np.array(
                             self.utt2target_feats[prev_candidate_unit[0]]
                                                  [prev_candidate_unit[1]])[1::2]
-                    prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats))
-                                                            #- self.target_feats_mean[1::2])
-                                                           #/ self.target_feats_std[1::2])
+                    prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats
+                                                            - self.target_feats_mean[1::2])
+                                                           / self.target_feats_std[1::2])
 
                     curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
                                                           prev_candidate_unit_concat_feats_fs)))
