@@ -7,14 +7,15 @@ import numpy as np
 
 class NN():
 
-    def __init__(self, utt_len, num_phones, num_features, model_dir, model_path=None):
+    def __init__(self, utt_len=0, num_phones=0, num_features=0, model_dir=0, model_path=None):
         if model_path:
+            from keras.models import load_model
             self.model=load_model(str(model_path))
         else:
             self.model=self._init_model(utt_len, num_phones, num_features)
-        self.utt_len = utt_len
-        self.num_phones = num_phones
-        self.model_dir = model_dir
+            self.utt_len = utt_len
+            self.num_phones = num_phones
+            self.model_dir = model_dir
 
     def _init_model(self, utt_len, num_phones, num_features):
         from keras.models import Model, load_model
@@ -35,7 +36,7 @@ class NN():
         features = TimeDistributed(Dense(num_features, activation='relu'))(context_embeddings3)
 
         model = Model(inputs=phone_input, outputs=features)
-        optimizer = SGD(lr=.1)
+        optimizer = SGD()
         model.compile(optimizer=optimizer,
                       loss='mean_squared_error',
                       metrics=['accuracy'])
@@ -50,6 +51,9 @@ class NN():
                                                     / '{epoch:02d}.hdf5'))
         self.model.fit(utterance_phones, features, callbacks=[checkpointer], epochs=epochs)
         self.model.save(str(self.model_dir / 'model.h5'))
+
+    def get_input_length(self):
+        return self.model.get_layer(index=0).input_shape[1]
 
     def evaluate(self, utterance_phones, gold_features):
         return self.model.evaluate(utterance_phones, gold_features)
@@ -72,9 +76,11 @@ if __name__ == "__main__":
     test_corpus_dir = args.test_corpus_dir
 
     model_dir = args.model_dir
+    if not model_dir.exists():
+        model_dir.mkdir(parents=True)
 
-    utterance_phone_file = 'utt2phone.npy'
-    utterance_phone_feats_file =  'target_feats.npy'
+    utterance_phone_file = 'utt2mono_di_tri_phones.npy'
+    utterance_phone_feats_file = 'target_feats_normalized.npy'
 
     train_phones_unpad = (np.load(str(train_corpus_dir / utterance_phone_file)))
     train_features_unpad = (np.load(str(train_corpus_dir / utterance_phone_feats_file)))
@@ -84,18 +90,16 @@ if __name__ == "__main__":
 
     utt_len = max(train_phones_unpad.shape[-1], test_phones_unpad.shape[-1])
 
-    train_padding=utt_len - train_phones_unpad.shape[-1]
-    test_padding=utt_len - test_phones_unpad.shape[-1]
+    train_padding = utt_len - train_phones_unpad.shape[-1]
+    test_padding = utt_len - test_phones_unpad.shape[-1]
+
     train_phones = np.pad(train_phones_unpad, [(0,0), (0,train_padding)], mode='constant')
     train_features = np.pad(train_features_unpad, [(0,0), (0,train_padding), (0,0)], mode='constant')
 
     test_phones = np.pad(test_phones_unpad, [(0,0), (0,test_padding)], mode='constant')
     test_features = np.pad(test_features_unpad, [(0,0), (0,test_padding), (0,0)], mode='constant')
 
-    num_phones = 0
-    with (train_corpus_dir / 'phones.txt').open() as phones_file:
-        for line in phones_file:
-            num_phones += 1
+    num_phones = np.amax(train_phones) + 1
     num_features = train_features.shape[-1]
     nn = NN(utt_len, num_phones, num_features, model_dir)
 
