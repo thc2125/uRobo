@@ -19,6 +19,10 @@ mono_di_tri_phones_filename = 'mono_di_tri_phones'
 utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
 utt2mono_di_tri_alignments_filename = 'utt2mono_di_tri_alignments'
 utt2target_feats_filename = 'utt2target_feats'
+spkr2mean_prefix = 'spkr2mean_'
+spkr2std_prefix = 'spkr2std_'
+spkr_independent_prefix = 'spkr_ind_'
+normalized_suffix = '_normalized'
 target_feats_filename = 'target_feats'
 utt2concat_feats_filename = 'utt2concat_feats'
 concat_feats_filename = 'concat_feats'
@@ -76,11 +80,25 @@ def load_json(json_filepath):
         return json.load(jsonfile)
 
 def load_target_feats(data_dir):
-    print(type(data_dir))
     utt2target_feats = load_json((data_dir / (utt2target_feats_filename + '.json')))
-    target_feats_mean = np.load(str(data_dir / (target_feats_mean_filename + '.npy')))
-    target_feats_std = np.load(str(data_dir / (target_feats_std_filename + '.npy')))
-    return utt2target_feats, target_feats_mean, target_feats_std
+    spkr2target_feats_mean = load_json((data_dir / 
+                                        (spkr2mean_prefix
+                                         + target_feats_filename 
+                                         + '.json')))
+    spkr2target_feats_std = load_json((data_dir / 
+                                        (spkr2std_prefix
+                                         + target_feats_filename 
+                                         + '.json')))
+
+    target_feats_mean = np.load(str(data_dir 
+                                    / (target_feats_mean_filename + '.npy')))
+    target_feats_std = np.load(str(data_dir 
+                                   / (target_feats_std_filename + '.npy')))
+    return (utt2target_feats, 
+            spkr2target_feats_mean, 
+            spkr2target_feats_std, 
+            target_feats_mean, 
+            target_feats_std)
 
 def load_concat_feats(data_dir):
     '''
