@@ -47,12 +47,18 @@ class NNConcatenator():
         self.data_dir = data_dir
         
         (self.utt2target_feats, 
+         self.spkr2target_feats_mean, 
+         self.spkr2target_feats_std, 
          self.target_feats_mean, 
-         self.target_feats_std) = utils.load_target_feats(data_dir)
+         self.target_feats_std
+         self.spkr2meantarget_feats) = utils.load_target_feats(data_dir)
 
+        '''
         (self.utt2concat_feats, 
          self.concat_feats_mean, 
          self.concat_feats_std) = utils.load_concat_feats(data_dir)
+        '''
+        
 
     def generate(self, text, output_path=Path('./synth.wav')):
         # Get the phone sequence of the text
@@ -76,14 +82,19 @@ class NNConcatenator():
         beg_target_feats=phone_target_feats_fs[0]
         for candidate_unit_idx in range(len(candidates[0])):
             # For this round, we're only looking for the target cost
-            # These are silence candidates
             candidate_unit = candidates[0][candidate_unit_idx]
             candidate_unit_feats = (
                 np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]]))
+            # Scale the features according to the speaker's mean and std
+            spkr = candidate_unit[0].split('-')[0]
+            candidate_unit_target_feats_mean = np.array(
+                    self.spkr2target_feats_mean[spkr])
+            candidate_unit_target_feats_std = np.array(
+                    self.spkr2target_feats_std[spkr])
             candidate_unit_feats_fs = ((candidate_unit_feats
-                                        - self.target_feats_mean) 
-                                       / self.target_feats_std)
+                                        - candidate_unit_target_feats_mean)
+                                       / candidate_unit_target_feats_std)
             # Sum of the absolute difference of all the features
             # TODO: Add weights for each feature?
             c_t = np.sum(np.fabs(np.subtract(candidate_unit_feats_fs, beg_target_feats)))
@@ -98,21 +109,25 @@ class NNConcatenator():
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
+                # Scale the features according to the speaker's mean and std
+                spkr = candidate_unit[0].split('-')[0]
+                candidate_unit_target_feats_mean = np.array(
+                        self.spkr2target_feats_mean[spkr])
+                candidate_unit_target_feats_std = np.array(
+                        self.spkr2target_feats_std[spkr])
+
                 candidate_unit_target_feats_fs = ((candidate_unit_target_feats
                                                    - self.target_feats_mean)
                                                   / self.target_feats_std)
 
+                # TODO: Change to match RNN Paper
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
                                                  unit_target_feats_fs)))
                 # Get the concatenation cost from previous units
                 c_c = float('inf')
                 prev_idx = 0
                 # Reset our features to exclude duration and initial f_0
-                candidate_unit_concat_feats = candidate_unit_target_feats[1::2]
-                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats
-                                                   - self.target_feats_mean[1::2])
-                                                  / self.target_feats_std[1::2])
-
+                candidate_unit_concat_feats_fs = candidate_unit_target_feats_fs[1::2]
                 for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
                     # concatenation?
@@ -122,12 +137,26 @@ class NNConcatenator():
                     prev_candidate_unit_concat_feats = np.array(
                             self.utt2target_feats[prev_candidate_unit[0]]
                                                  [prev_candidate_unit[1]])[2:]
+                    # We don't want to scale these for the initial subtraction. 
+                    # We're concerned here with
+                    # absolute relation of the two units to each other.
+                    '''
+                    prev_spkr = prev_candidate_unit[0]
+                    prev_candidate_unit_concat_feats_mean = np.array(
+                            self.spkr2target_feats_mean[prev_spkr])[2:]
+                    prev_candidate_unit_concat_feats_std = np.array(
+                            self.spkr2target_feats_std[prev_spkr])[2:]
+              
                     prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats
-                                                            - self.target_feats_mean[2:])
-                                                           / self.target_feats_std[2:])
-
+                                                            - prev_candidate_unit_concat_feats_mean)
+                                                           / prev_candidate_unit_concat_feats_std)
                     curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
                                                           prev_candidate_unit_concat_feats_fs)))
+                    '''
+                    curr_c_c_unscaled = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats,
+                                                                   prev_candidate_unit_concat_feats)))
+                    curr_cc = ((curr_c_c_unscaled-self.target_feats_mean[1::2])
+                               / self.target_feats_std[1::2])
                     if curr_c_c < c_c:
                         c_c = curr_c_c
                         prev_idx = prev_candidate_unit_idx
