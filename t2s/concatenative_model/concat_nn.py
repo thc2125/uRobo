@@ -98,9 +98,9 @@ class NNConcatenator():
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
-                candidate_unit_target_feats_fs = ((candidate_unit_target_feats
-                                                   - self.target_feats_mean) 
-                                                  / self.target_feats_std)
+                candidate_unit_target_feats_fs = ((candidate_unit_target_feats))
+                                                  # - self.target_feats_mean) 
+                                                  #/ self.target_feats_std)
 
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
                                                  unit_target_feats_fs)))
@@ -108,10 +108,10 @@ class NNConcatenator():
                 c_c = float('inf')
                 prev_idx = 0
                 # Reset our features to exclude duration and initial f_0
-                candidate_unit_concat_feats = candidate_unit_target_feats[2:]
+                candidate_unit_concat_feats = candidate_unit_target_feats[1::2]
                 candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats))
-                                                   #- self.target_feats_mean[2:])
-                                                  #/ self.target_feats_std[2:])
+                                                   #- self.target_feats_mean[1::2])
+                                                  #/ self.target_feats_std[1::2])
 
                 for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
@@ -121,10 +121,10 @@ class NNConcatenator():
                     #print(self.utt2phones[prev_candidate_unit[0]][prev_candidate_unit[1]])
                     prev_candidate_unit_concat_feats = np.array(
                             self.utt2target_feats[prev_candidate_unit[0]]
-                                                 [prev_candidate_unit[1]])[1::2]
+                                                 [prev_candidate_unit[1]])[2:]
                     prev_candidate_unit_concat_feats_fs = ((prev_candidate_unit_concat_feats
-                                                            - self.target_feats_mean[1::2])
-                                                           / self.target_feats_std[1::2])
+                                                            - self.target_feats_mean[2:])
+                                                           / self.target_feats_std[2:])
 
                     curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
                                                           prev_candidate_unit_concat_feats_fs)))
@@ -184,11 +184,11 @@ class NNConcatenator():
         # Start with the silence phone
         phones = []
         for word in text.split():
-            phones += ['SIL']
+            #phones += ['SIL']
             phones += self.word2phones[word.upper()]
             # Add silence between words
         # End with a final silence
-        phones += ['SIL']
+        #phones += ['SIL']
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
@@ -260,8 +260,8 @@ class NNConcatenator():
 
             phones = []
             for phone in alignments:
-                phone_start = alignments[0][0]
-                phone_end = alignments[0][1]
+                phone_start = phone[0]
+                phone_end = phone[1]
                 phones.append(utterance_wav[phone_start:phone_end])
 
             if join_phones:
