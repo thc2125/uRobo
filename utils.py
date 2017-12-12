@@ -125,6 +125,7 @@ def get_phone2idx(phones_path):
     return phone2idx, idx2phone
 
 def cross_fade(samples1, samples2):
+    '''
     if len(samples1) < len(samples2):
         new_samples = np.add(np.pad(samples1, 
                                     (0, len(samples2)-len(samples1)), mode='constant'),
@@ -135,5 +136,7 @@ def cross_fade(samples1, samples2):
                                     mode='constant'),
                              samples1)
     #new_samples = np.concatenate([samples1, samples2])
+    '''
+    new_samples = samples2
     return new_samples
 
