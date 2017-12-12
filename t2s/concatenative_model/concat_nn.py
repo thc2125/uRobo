@@ -98,9 +98,9 @@ class NNConcatenator():
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
                     self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
-                candidate_unit_target_feats_fs = ((candidate_unit_target_feats))
-                                                  # - self.target_feats_mean) 
-                                                  #/ self.target_feats_std)
+                candidate_unit_target_feats_fs = ((candidate_unit_target_feats
+                                                   - self.target_feats_mean)
+                                                  / self.target_feats_std)
 
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
                                                  unit_target_feats_fs)))
@@ -109,9 +109,9 @@ class NNConcatenator():
                 prev_idx = 0
                 # Reset our features to exclude duration and initial f_0
                 candidate_unit_concat_feats = candidate_unit_target_feats[1::2]
-                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats))
-                                                   #- self.target_feats_mean[1::2])
-                                                  #/ self.target_feats_std[1::2])
+                candidate_unit_concat_feats_fs = ((candidate_unit_concat_feats
+                                                   - self.target_feats_mean[1::2])
+                                                  / self.target_feats_std[1::2])
 
                 for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
