@@ -31,6 +31,10 @@ mono_di_tri_phones_filename = 'mono_di_tri_phones'
 utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
 utt2mono_di_tri_alignments_filename = 'utt2mono_di_tri_alignments'
 utt2target_feats_filename = 'utt2target_feats'
+spkr2mean_prefix = 'spkr2mean_'
+spkr2std_prefix = 'spkr2std_'
+spkr_independent_prefix = 'spkr_ind_'
+normalized_suffix = '_normalized'
 target_feats_filename = 'target_feats'
 utt2concat_feats_filename = 'utt2concat_feats'
 concat_feats_filename = 'concat_feats'
@@ -44,7 +48,12 @@ female = 'f'
 
 fs=16000
 
-def preprocess(orig_dirpath, processed_dirpath, duration_limit=float('inf'), gender=None, nphones=None):
+def preprocess(orig_dirpath, 
+               processed_dirpath, 
+               duration_limit=float('inf'), 
+               gender=None, 
+               nphones=None,
+               speakers=None):
 
     if not processed_dirpath.exists():
         processed_dirpath.mkdir(parents=True)
@@ -53,7 +62,8 @@ def preprocess(orig_dirpath, processed_dirpath, duration_limit=float('inf'), gen
                                 processed_dirpath, 
                                 duration_limit=duration_limit,
                                 gender=gender,
-                                nphones=nphones)
+                                nphones=nphones,
+                                speakers=speakers)
     data = utils.load_data(processed_dirpath)
 
     process_data(processed_dirpath, sorted(list(utterances)), *data)
@@ -62,24 +72,26 @@ def copy_base_data(orig_dirpath,
                    processed_dirpath, 
                    duration_limit=None,
                    gender=None,
-                   nphones=None):
-    spk2gender = get_spk2gender((orig_dirpath / (spk2gender_filename + '.txt')))
+                   nphones=None,
+                   speakers=None):
+
+    spk2gender = get_spk2gender((orig_dirpath / (spk2gender_filename)))
     # JSONize spk2gender
     with (processed_dirpath / (spk2gender_filename + '.json')).open('w') as spk2gender_file:
         json.dump(spk2gender, spk2gender_file, indent=4)
 
 
-    idx2phones, phones2idx = get_phones((orig_dirpath / (phones_filename + '.txt')))
+    idx2phones, phones2idx = get_phones((orig_dirpath / (phones_filename)))
     # JSONize phone list
     with (processed_dirpath / (phones_filename + '.json')).open('w') as phones_file:
         json.dump(idx2phones, phones_file, indent=4)
 
-    idx2vocab, vocab2idx = get_vocab((orig_dirpath / (vocabulary_filename + '.txt')))
+    idx2vocab, vocab2idx = get_vocab((orig_dirpath / (vocabulary_filename)))
     # JSONIze vocabulary
     with (processed_dirpath / (vocabulary_filename + '.json')).open('w') as vocabulary_file:
         json.dump(idx2vocab, vocabulary_file, indent=4)
 
-    word2phones = get_lexicon((orig_dirpath / (lexicon_filename + '.txt')))
+    word2phones = get_lexicon((orig_dirpath / (lexicon_filename)))
     # JSONIze lexicon
     with (processed_dirpath / (lexicon_filename + '.json')).open('w') as lexicon_file:
         json.dump(word2phones, lexicon_file, indent=4)
@@ -88,12 +100,13 @@ def copy_base_data(orig_dirpath,
         '.txt')))
 
     utt2phones_all, utt2alignments_all = get_alignments(
-            orig_dirpath / (alignments_filename + '.txt'), 
+            orig_dirpath / (alignments_filename), 
             idx2phones)
 
     utterances, spks, utt2dur, curr_duration = get_utterances(
-            (orig_dirpath / (utterance_duration_filename + '.txt')),
+            (orig_dirpath / (utterance_duration_filename)),
             gender,
+            speakers,
             duration_limit,
             spk2gender, 
             word2phones,
@@ -481,23 +494,26 @@ def get_alignments(alignments_filepath, idx2phones):
 
 def get_utterances(utterance_duration_filepath,
                    gender,
+                   speakers,
                    duration_limit,
                    spk2gender,
                    word2phones,
                    utt2words,
                    utt2alignments):
-    utt2dur = {}  
-    # Get utterances and durations, filtering by gender
+    utt2dur = {}
+    # Get utterances and durations, filtering by gender and speaker
     with utterance_duration_filepath.open() as utterance_duration_file:
         for line in utterance_duration_file:
             split_line = line.split()
             utterance=split_line[0]
             spk = '-'.join(utterance.split('-')[0:-1])
+            spkr = utterance.split('-')[0]
             curr_duration = split_line[1]
-            if ((gender and spk2gender[spk] == gender) or
-                 not gender):
-                utt2dur[utterance]=float(curr_duration)
-
+            if ((speakers and spkr in speakers) or
+                not speaker):
+                if ((gender and spk2gender[spk] == gender) or
+                    not gender):
+                    utt2dur[utterance]=float(curr_duration)
 
     curr_duration = 0
     utterances = set()
@@ -609,11 +625,64 @@ def get_mono_di_tri_phones_alignments_from_utterance(nphone2idx,
             raise KeyError('Bad phone: ' + str(monophone))
     return utterance_mono_di_tri_phones, utterance_mono_di_tri_alignments
 
+def get_spk_independent_feats(utterances,
+                              utt2feats, 
+                              processed_dirpath, 
+                              feats_filename,
+                              maxphonelen):
+    # First get target features for each speaker's utterances
+    spkr2utt_feats = {}
+    for utterance in utt2feats:
+        spkr = utterance.split('-')[0]
+        if spkr not in spkr2utt_feats:
+            spkr2utt_feats[spkr] = []
+        spkr2utt_feats[spkr].append(utt2feats[utterance])
+
+    # Now get mean and std for each speaker
+    spkr2mean={}
+    spkr2std={}
+    for spkr in spkr2utt_feats:
+        spkr_utterances = spkr2utt_feats[spkr]
+        #print(spkr_utt2feats.values())
+        flattened = np.array([feats
+                              for utterance in spkr_utterances
+                                  for feats in utterance])
+        print("TYPE: " + str(flattened.dtype))
+        mean = (np.mean(flattened, axis=0)).tolist()
+        std = (np.std(flattened, axis=0)).tolist()
+        spkr2mean[spkr] = mean
+        spkr2std[spkr] = std
+    #JSONize
+    utils.save_json(spkr2mean, ((processed_dirpath 
+                                 / (spkr2mean_filename 
+                                    + feats_filename + '.json'))))
+    utils.save_json(spkr2std, ((processed_dirpath 
+                                 / (spkr2std_filename 
+                                    + feats_filename + '.json'))))
+
+    # Now produce a numpy structure to store the normalized data,
+    # for use in the neural network
+    utterance_normalized_feats = []
+    for utterance in utterances:
+        spkr = utterance.split('-')[0]
+        feats = utt2feats[utterance]
+        normalized_feats = np.pad((np.array(feats)
+                                   - np.array(spkr2mean[spkr]))
+                                  / np.array(spkr2std[spkr]),
+                                  ((0,maxphonelen-len(feats)),(0,0)),
+                                  mode='constant')
+
+        utterance_normalized_feats.append(normalized_feats)
+    np_utterance_normalized_feats = np.asarray(utterance_normalized_feats)
+    np.save(str(processed_dirpath / (spkr_independent_prefix + feats_filename
+                                     + normalized_suffix + '.npy')),
+            np_utterance_normalized_feats)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dur_limit', type=lambda d: int(d)*60*60*fs)
     parser.add_argument('--gender', type=str)
+    parser.add_argument('--speakers', nargs='+')
     parser.add_argument('data_dir', type=Path)
     parser.add_argument('normalized_dir', type=Path)
     parser.add_argument('-n', '--nphones', type=Path)
@@ -626,4 +695,6 @@ if __name__ == '__main__':
         main_args['gender']=args.gender
     if args.nphones:
         main_args['nphones']=utils.load_json(args.nphones)
+    if args.speakers:
+        main_args['speakers'] = set(args.speakers)
     preprocess(**main_args)
