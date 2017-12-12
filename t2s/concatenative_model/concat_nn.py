@@ -60,7 +60,7 @@ class NNConcatenator():
         '''
         
 
-    def generate(self, text, output_path=Path('./synth.wav')):
+    def synthesize(self, text, output_path=Path('./synth.wav')):
         # Get the phone sequence of the text
         # The current version of the synthesizer uses triphones with 1-phone 
         # overlap, with diphone and monophone backoff
