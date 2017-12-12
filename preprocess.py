@@ -56,7 +56,7 @@ def preprocess(orig_dirpath, processed_dirpath, duration_limit=float('inf'), gen
                                 nphones=nphones)
     data = utils.load_data(processed_dirpath)
 
-    process_data(processed_dirpath, list(utterances), *data)
+    process_data(processed_dirpath, sorted(list(utterances)), *data)
 
 def copy_base_data(orig_dirpath, 
                    processed_dirpath, 
@@ -100,7 +100,7 @@ def copy_base_data(orig_dirpath,
             utt2words_all,
             utt2alignments_all)
     # JSONIze utterances
-    utils.save_json(list(utterances), processed_dirpath / (utterances_filename + '.json'))
+    utils.save_json(sorted(list(utterances)), processed_dirpath / (utterances_filename + '.json'))
     utils.save_json(utt2dur, processed_dirpath / (utterance_duration_filename + '.json'))
 
     # Create new transcripts and alignments
@@ -160,7 +160,7 @@ def copy_base_data(orig_dirpath,
 
     
     # Copy and convert audio from flac to wav
-    #copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
+    copy_and_convert_utterances(utterances, orig_dirpath, processed_dirpath)
 
     return utterances
 
@@ -226,26 +226,39 @@ def generate_target_feats(utterances,
                           processed_dirpath,
                           maxphonelen):
     print("HERE!")
+    # A dictionary from utterance to features
     utt2target_feats=defaultdict(list)
+    # A sorted list of utterance features (sorted 
+    utt_target_feats = []
     for utterance in utterances:
+        utt_target_feats.append([])
         for alignment in utt2mono_di_tri_alignments[utterance]:
             target_feats = get_target_feats(utterance_wavs[utterance], alignment)
+            utt_target_feats[-1].append(target_feats)
             utt2target_feats[utterance].append(target_feats)
 
     utils.save_json(utt2target_feats, processed_dirpath / (utt2target_feats_filename + '.json'))
     num_target_feats = len(list(utt2target_feats.values())[0][0])
-    np_target_feats = np.stack([np.pad(feats, 
-                                       ((0, maxphonelen-len(feats)), 
-                                        (0, 0)), 
-                                       'constant')
-                                for feats in utt2target_feats.values()])
-    np.save(str(processed_dirpath / (target_feats_filename + '_raw.npy')), np_target_feats, allow_pickle=False)
-    np_target_feats_mean = np.mean(np.reshape(np_target_feats, (-1,num_target_feats)), axis=0)
-    np_target_feats_std = np.std(np.reshape(np_target_feats, (-1,num_target_feats)), axis=0)
-    np_target_feats_normalized = (np_target_feats - np_target_feats_mean) / np_target_feats_std
-    np.save(str(processed_dirpath / (target_feats_mean_filename + '.npy')), np_target_feats_mean, allow_pickle=False)
-    np.save(str(processed_dirpath / (target_feats_std_filename + '.npy')), np_target_feats_std, allow_pickle=False)
-    np.save(str(processed_dirpath / (target_feats_filename + '_normalized.npy')), np_target_feats_normalized, allow_pickle=False)
+
+    np_target_feats_flattened = np.array([feats for utterance in utt_target_feats for feats in utterance])
+    np_target_feats_mean = np.mean(np_target_feats_flattened, axis=0)
+    np_target_feats_std = np.std(np_target_feats_flattened, axis=0)
+    np_target_feats_normalized = np.asarray([np.pad((np.array(feats)
+                                                     - np_target_feats_mean)
+                                                     / np_target_feats_std, 
+                                                    ((0,maxphonelen-len(feats)),(0,0)),
+                                                    mode='constant')
+                                             for feats in utt_target_feats])
+
+    np.save(str(processed_dirpath / (target_feats_mean_filename + '.npy')),
+            np_target_feats_mean,
+            allow_pickle=False)
+    np.save(str(processed_dirpath / (target_feats_std_filename + '.npy')),
+            np_target_feats_std,
+            allow_pickle=False)
+    np.save(str(processed_dirpath / (target_feats_filename + '_normalized.npy')),
+            np_target_feats_normalized,
+            allow_pickle=False)
 
 def generate_concat_feats(utterances, 
                           utterance_wavs, 
@@ -253,26 +266,19 @@ def generate_concat_feats(utterances,
                           processed_dirpath,
                           maxphonelen):
     utt2concat_feats=defaultdict(list)
+    utt_concat_feats = []
     for utterance in utterances:
+        utt_concat_feats.append([])
         for alignment in utt2mono_di_tri_alignments[utterance]:
             concat_feats = get_concat_feats(utterance_wavs[utterance], alignment)
+            utt_concat_feats[-1].append(concat_feats)
             utt2concat_feats[utterance].append(concat_feats)
 
     utils.save_json(utt2concat_feats, processed_dirpath / (utt2concat_feats_filename + '.json'))
 
     num_concat_feats = len(list(utt2concat_feats.values())[0][0])
-    #vec_concat_feats = [[mfcc_init + mfcc_end + [f_0_init, f_0_end, energy] 
-    #                     for mfcc_init, mfcc_end, f_0_init, f_0_end, energy in feats] 
-    #                    for feats in utt2concat_feats.values()]
-    np_concat_feats = np.stack([np.pad(feats,
-                                       ((0, maxphonelen-len(feats)), 
-                                        (0, 0)), 
-                                       'constant')
-                                for feats in concat_feats.values()])
-    np.save(str(processed_dirpath / (concat_feats_filename + '_raw.npy')), np_concat_feats, allow_pickle=False)
-    np_concat_feats_mean = np.mean(np.reshape(np_concat_feats, (-1,num_concat_feats)), axis=0)
-    np_concat_feats_std = np.std(np.reshape(np_concat_feats, (-1,num_concat_feats)), axis=0)
-    np_concat_feats_normalized = (np_concat_feats - np_concat_feats_mean) / np_concat_feats_std
+
+
     np.save(str(processed_dirpath / (concat_feats_mean_filename + '.npy')), np_concat_feats_mean, allow_pickle=False)
     np.save(str(processed_dirpath / (concat_feats_std_filename + '.npy')), np_concat_feats_std, allow_pickle=False)
     np.save(str(processed_dirpath / (concat_feats_filename + '_normalized.npy')), np_concat_feats_normalized, allow_pickle=False)
