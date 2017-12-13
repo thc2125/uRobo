@@ -25,23 +25,35 @@ lexicon_filename = 'align_lexicon'
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
+
 utt2phones_filename = 'utt2phone'
-utt2alignments_filename = 'utt2alignments'
-mono_di_tri_phones_filename = 'mono_di_tri_phones'
+utt2diphones_filename = 'utt2diphones'
+utt2triphones_filename = 'utt2triphones'
 utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
+
+utt2alignments_filename = 'utt2alignments'
+utt2diphone_alignments_filename = 'utt2diphone_alignments'
+utt2triphone_alignments_filename = 'utt2triphone_alignments'
 utt2mono_di_tri_alignments_filename = 'utt2mono_di_tri_alignments'
-utt2target_feats_filename = 'utt2target_feats'
+
+utt_prefix = 'utt_'
+
+words_filename = 'words'
+
+utt2_id = 'utt2'
+
+mono_di_tri_phones_filename = 'mono_di_tri_phones'
+
+target_feats_suffix = 'target_feats'
+
+mean_suffix='_mean'
+std_suffix='_std'
+
 spkr2mean_prefix = 'spkr2mean_'
 spkr2std_prefix = 'spkr2std_'
 spkr_independent_prefix = 'spkr_ind_'
 normalized_suffix = '_normalized'
-target_feats_filename = 'target_feats'
 utt2concat_feats_filename = 'utt2concat_feats'
-concat_feats_filename = 'concat_feats'
-target_feats_mean_filename = 'target_feats_mean'
-concat_feats_mean_filename  = 'concat_feats_mean'
-target_feats_std_filename = 'target_feats_std'
-concat_feats_std_filename  = 'concat_feats_std'
 
 male = 'm'
 female = 'f'
@@ -52,7 +64,7 @@ def preprocess(orig_dirpath,
                processed_dirpath, 
                duration_limit=float('inf'), 
                gender=None, 
-               nphones=None,
+               mono_di_tri_phones=None,
                speakers=None):
 
     if not processed_dirpath.exists():
@@ -62,7 +74,7 @@ def preprocess(orig_dirpath,
                                 processed_dirpath, 
                                 duration_limit=duration_limit,
                                 gender=gender,
-                                nphones=nphones,
+                                mono_di_tri_phones=mono_di_tri_phones,
                                 speakers=speakers)
     data = utils.load_data(processed_dirpath)
 
@@ -72,7 +84,7 @@ def copy_base_data(orig_dirpath,
                    processed_dirpath, 
                    duration_limit=None,
                    gender=None,
-                   nphones=None,
+                   mono_di_tri_phones=None,
                    speakers=None):
 
     spk2gender = get_spk2gender((orig_dirpath / (spk2gender_filename)))
@@ -135,23 +147,36 @@ def copy_base_data(orig_dirpath,
     with (processed_dirpath / (utt2alignments_filename + '.json')).open('w') as utt2alignments_file:
         json.dump(utt2alignments, utt2alignments_file, indent=4)
 
-    if nphones:
-        idx2mono_di_tri_phones=[tuple(phones) for phones in nphones]
+
+    # Create metrics of diphones
+    utt2diphones, utt2diphone_alignments, diphone_counts = get_nphones(utt2phones, utt2alignments, 2)
+    idx2diphones = [diphone 
+                    for diphone, count in sorted(diphone_counts.items()) 
+                    if ((count / len(diphone_counts)) > .001)]
+
+    utils.save_json(utt2diphones, 
+                    processed_dirpath / (utt2diphones_filename + '.json'))
+    utils.save_json(utt2diphone_alignments, 
+                    processed_dirpath / (utt2diphone_alignments_filename + '.json'))
+
+
+    # Create metrics of triphones
+    utt2triphones, utt2triphone_alignments, triphone_counts = get_nphones(utt2phones, utt2alignments, 3)
+    idx2triphones = [triphone 
+                     for triphone, count in sorted(triphone_counts.items()) 
+                     if ((count / len(triphone_counts)) > .01)]
+
+
+    utils.save_json(utt2triphones, processed_dirpath / (utt2triphones_filename + '.json'))
+    utils.save_json(utt2triphone_alignments, 
+                    processed_dirpath / (utt2triphone_alignments_filename + '.json'))
+
+
+    if mono_di_tri_phones:
+        idx2mono_di_tri_phones=[tuple(phones) for phones in mono_di_tri_phones]
     else:
-
-        # Create metrics of diphones
-        diphone_counts = get_nphones(utt2phones, 2)
-        idx2diphones = [diphone 
-                        for diphone, count in sorted(diphone_counts.items()) 
-                        if ((count / len(diphone_counts)) > .01)]
-
-        # Create metrics of triphones
-        triphone_counts = get_nphones(utt2phones, 3)
-        idx2triphones = [triphone 
-                         for triphone, count in sorted(triphone_counts.items()) 
-                         if ((count / len(triphone_counts)) > .01)]
-
         idx2mono_di_tri_phones = [tuple([phone]) for phone in idx2phones] + idx2diphones + idx2triphones
+
     with (processed_dirpath / (mono_di_tri_phones_filename
                                + '.json')).open('w') as mono_di_tri_phones_file:
         json.dump(idx2mono_di_tri_phones, mono_di_tri_phones_file, indent=4)
@@ -189,6 +214,10 @@ def process_data(processed_dirpath,
                  utt2words,
                  utt2phones, 
                  utt2alignments, 
+                 utt2diphones,
+                 utt2diphone_alignments,
+                 utt2triphones,
+                 utt2triphone_alignments,
                  utt2mono_di_tri_phones,
                  utt2mono_di_tri_alignments):
 
@@ -196,36 +225,61 @@ def process_data(processed_dirpath,
     # phonetic transcripts
     word_list = []
     phones_list = []
-    maxuttlen = max([len(words) for words in utt2words.values()])
-    maxphonelen = max([len(phones) for phones in utt2phones.values()])
+    mono_di_tri_phones_list = []
+    maxuttlen = len(max(utt2words.values(), key=len))
+    maxphonelen = len(max(utt2phones.values(), key=len))
+    max_mono_di_tri_phonelen = len(max(utt2mono_di_tri_phones.values(), key=len))
 
     for idx in range(len(utterances)):
-        word_list.append(np.pad([vocabulary2idx[word] 
+        word_list.append(np.pad([vocabulary2idx[word]
                                  for word in utt2words[utterances[idx]]], 
                                 (0, maxuttlen - len(utt2words[utterances[idx]])), 
                                 'constant'))
-        phones_list.append(np.pad([mono_di_tri_phones2idx[tuple(phone)] 
-                                   for phone in utt2mono_di_tri_phones[utterances[idx]]],
-                                  (0, maxphonelen - len(utt2mono_di_tri_phones[utterances[idx]])),
+        #print(utt2phones[utterances[idx]])
+        phones_list.append(np.pad([phones2idx[phone] 
+                                   for phone in utt2phones[utterances[idx]]],
+                                  (0, maxphonelen - len(utt2phones[utterances[idx]])),
                                   'constant'))
+        mono_di_tri_phones_list.append(np.pad([mono_di_tri_phones2idx[tuple(phone)] 
+                                               for phone in utt2mono_di_tri_phones[utterances[idx]]],
+                                              (0, max_mono_di_tri_phonelen - len(utt2mono_di_tri_phones[utterances[idx]])),
+                                              'constant'))
+        #phones_mono_di_tri_phones_list = phones_list + mono_di_tri_phones_list
 
     np_word_list=np.stack(word_list)
-    np.save(str(processed_dirpath / (transcriptions_filename + '.npy')), 
-            word_list, 
+    np.save(str(processed_dirpath / (utt_prefix + words_filename + '.npy')), 
+            np_word_list, 
             allow_pickle=False)
+
     np_phones_list=np.stack(phones_list)
-    np.save(str(processed_dirpath / (utt2mono_di_tri_phones_filename + '.npy')), 
-            phones_list, 
+    np.save(str(processed_dirpath / (utt_prefix + phones_filename + '.npy')),
+            np_phones_list,
+            allow_pickle=False)
+
+    np_mono_di_tri_phones_list=np.stack(mono_di_tri_phones_list)
+    np.save(str(processed_dirpath / (utt_prefix + mono_di_tri_phones_filename + '.npy')), 
+            np_mono_di_tri_phones_list,
             allow_pickle=False)
 
     # Get the features of each phone group in each utterance
+    # First load all the utterance samples into memory
     utterance_wavs = get_utterance_wavs(processed_dirpath, utterances)
 
+    # Now generate target features for phones
     generate_target_feats(utterances, 
-                          utterance_wavs, 
+                          utterance_wavs,
+                          utt2alignments,
+                          processed_dirpath,
+                          phones_filename,
+                          maxphonelen)
+
+    # Now generate target features for mono_di_tri_phones
+    generate_target_feats(utterances, 
+                          utterance_wavs,
                           utt2mono_di_tri_alignments,
                           processed_dirpath,
-                          maxphonelen)
+                          mono_di_tri_phones_filename,
+                          max_mono_di_tri_phonelen)
 
     '''generate_concat_feats(utterances, 
                           utterance_wavs, 
@@ -235,8 +289,9 @@ def process_data(processed_dirpath,
 
 def generate_target_feats(utterances, 
                           utterance_wavs, 
-                          utt2mono_di_tri_alignments,
+                          utt2alignments,
                           processed_dirpath,
+                          phone_type,
                           maxphonelen):
     print("HERE!")
     # A dictionary from utterance to features
@@ -245,12 +300,21 @@ def generate_target_feats(utterances,
     utt_target_feats = []
     for utterance in utterances:
         utt_target_feats.append([])
-        for alignment in utt2mono_di_tri_alignments[utterance]:
-            target_feats = get_target_feats(utterance_wavs[utterance], alignment)
+        for alignment in utt2alignments[utterance]:
+            if phones_filename == phone_type:
+                target_feats = get_target_feats(utterance_wavs[utterance], tuple([alignment]))
+            else:
+                target_feats = get_target_feats(utterance_wavs[utterance], alignment)
             utt_target_feats[-1].append(target_feats)
             utt2target_feats[utterance].append(target_feats)
 
-    utils.save_json(utt2target_feats, processed_dirpath / (utt2target_feats_filename + '.json'))
+    utils.save_json(utt2target_feats, 
+                    processed_dirpath 
+                    / (utt2_id 
+                       + phone_type 
+                       + target_feats_suffix 
+                       + '.json'))
+
     num_target_feats = len(list(utt2target_feats.values())[0][0])
 
     np_target_feats_flattened = np.array([feats for utterance in utt_target_feats for feats in utterance])
@@ -263,42 +327,35 @@ def generate_target_feats(utterances,
                                                     mode='constant')
                                              for feats in utt_target_feats])
 
-    np.save(str(processed_dirpath / (target_feats_mean_filename + '.npy')),
+    np.save(str(processed_dirpath 
+                / (utt_prefix 
+                   + target_feats_suffix
+                   + mean_suffix 
+                   + '.npy')),
             np_target_feats_mean,
             allow_pickle=False)
-    np.save(str(processed_dirpath / (target_feats_std_filename + '.npy')),
+
+    np.save(str(processed_dirpath 
+                / (utt_prefix 
+                   + phone_type
+                   + target_feats_suffix
+                   + std_suffix 
+                   + '.npy')),
             np_target_feats_std,
             allow_pickle=False)
-    np.save(str(processed_dirpath / (target_feats_filename + '_normalized.npy')),
+
+    np.save(str(processed_dirpath / (phone_type + '_normalized.npy')),
             np_target_feats_normalized,
             allow_pickle=False)
 
-def generate_concat_feats(utterances, 
-                          utterance_wavs, 
-                          utt2mono_di_tri_alignments,
-                          processed_dirpath,
-                          maxphonelen):
-    utt2concat_feats=defaultdict(list)
-    utt_concat_feats = []
-    for utterance in utterances:
-        utt_concat_feats.append([])
-        for alignment in utt2mono_di_tri_alignments[utterance]:
-            concat_feats = get_concat_feats(utterance_wavs[utterance], alignment)
-            utt_concat_feats[-1].append(concat_feats)
-            utt2concat_feats[utterance].append(concat_feats)
-
-    utils.save_json(utt2concat_feats, processed_dirpath / (utt2concat_feats_filename + '.json'))
-
-    num_concat_feats = len(list(utt2concat_feats.values())[0][0])
-
-
-    np.save(str(processed_dirpath / (concat_feats_mean_filename + '.npy')), np_concat_feats_mean, allow_pickle=False)
-    np.save(str(processed_dirpath / (concat_feats_std_filename + '.npy')), np_concat_feats_std, allow_pickle=False)
-    np.save(str(processed_dirpath / (concat_feats_filename + '_normalized.npy')), np_concat_feats_normalized, allow_pickle=False)
-
+    get_spk_independent_feats(utterances,
+                              utt2target_feats,
+                              processed_dirpath,
+                              phone_type,
+                              target_feats_suffix,
+                              maxphonelen)
 
 def get_target_feats(utterance_wav, alignments):
- 
     #phone_start = int(alignments[0] * fs)
     first_phone_start = alignments[0][0]
     first_phone_end = alignments[0][1]
@@ -362,39 +419,6 @@ def get_target_feats(utterance_wav, alignments):
     #print()
     energy = np.sum(np.square(all_phone_samples)) / duration
     return duration, f_0_init, f_0_end, energy
-
-def get_concat_feats(utterance_wav, alignments):
-    #phone_start = int(alignments[0] * fs)
-    first_phone_start = alignments[0][0]
-    first_phone_end = alignments[0][1]
-
-    #print("START: " + str(phone_start))
-    #phone_end = int(alignments[1] * fs)
-    #print("END: " + str(phone_end))
-    last_phone_start = alignments[-1][0]
-    last_phone_end = alignments[-1][1]
-    first_phone_samples = utterance_wav[first_phone_start:first_phone_end]
-    last_phone_samples = utterance_wav[last_phone_start:last_phone_end]
-    all_phone_samples = utterance_wav[first_phone_start:last_phone_end]
-
-    duration = last_phone_end - first_phone_start
-
-    #first_phone_mfccs = pysptk.mfcc(first_phone_samples)
-    #last_phone_mfccs =  pysptk.mfcc(last_phone_samples)
-
-    f_0_init = np.mean(pysptk.swipe(first_phone_samples.astype(np.float64), 
-                                    fs=fs, 
-                                    hopsize=100, 
-                                    otype='f0'))
-    f_0_end = np.mean(pysptk.swipe(last_phone_samples.astype(np.float64), 
-                                   fs=fs, 
-                                   hopsize=100, 
-                                   otype='f0'))
-
-    energy = np.sum(np.square(all_phone_samples)) / duration
-    return f_0_init, f_0_end, energy
-    #return first_phone_mfccs.tolist(), last_phone_mfccs.tolist(), f_0_init, f_0_end, energy
-
 
 def get_utterance_wavs(processed_dirpath, utterances):
     utterance_wavs = {}
@@ -510,7 +534,7 @@ def get_utterances(utterance_duration_filepath,
             spkr = utterance.split('-')[0]
             curr_duration = split_line[1]
             if ((speakers and spkr in speakers) or
-                not speaker):
+                not speakers):
                 if ((gender and spk2gender[spk] == gender) or
                     not gender):
                     utt2dur[utterance]=float(curr_duration)
@@ -563,15 +587,20 @@ def get_utterance_dirs(utterance):
     utterance_dirs = os.path.join(*(utterance.split('-')[0:-1]))
     return utterance_dirs
 
-def get_nphones(utt2phones, n):
+def get_nphones(utt2phones, utt2alignments, n):
     nphone_counts = Counter()
-    for phones in utt2phones.values():
+    utt2nphones = defaultdict(list)
+    utt2nphone_alignments = defaultdict(list)
+    for utterance, phones in utt2phones.items():
         idx = 0
         while idx+n < len(phones):
             nphone = tuple(phones[idx:idx+n])
+            nphone_alignments = utt2alignments[utterance][idx:idx+n]
             nphone_counts[nphone] += 1
+            utt2nphones[utterance].append(nphone)
+            utt2nphone_alignments[utterance].append(nphone_alignments)
             idx += 1
-    return nphone_counts
+    return utt2nphones, utt2nphone_alignments, nphone_counts
 
 def get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
                                      utt2phones, 
@@ -628,6 +657,7 @@ def get_mono_di_tri_phones_alignments_from_utterance(nphone2idx,
 def get_spk_independent_feats(utterances,
                               utt2feats, 
                               processed_dirpath, 
+                              phone_type,
                               feats_filename,
                               maxphonelen):
     # First get target features for each speaker's utterances
@@ -654,10 +684,12 @@ def get_spk_independent_feats(utterances,
         spkr2std[spkr] = std
     #JSONize
     utils.save_json(spkr2mean, ((processed_dirpath 
-                                 / (spkr2mean_filename 
+                                 / (spkr2mean_prefix
+                                    + phone_type
                                     + feats_filename + '.json'))))
     utils.save_json(spkr2std, ((processed_dirpath 
-                                 / (spkr2std_filename 
+                                 / (spkr2std_prefix 
+                                    + phone_type
                                     + feats_filename + '.json'))))
 
     # Now produce a numpy structure to store the normalized data,
@@ -674,7 +706,7 @@ def get_spk_independent_feats(utterances,
 
         utterance_normalized_feats.append(normalized_feats)
     np_utterance_normalized_feats = np.asarray(utterance_normalized_feats)
-    np.save(str(processed_dirpath / (spkr_independent_prefix + feats_filename
+    np.save(str(processed_dirpath / (spkr_independent_prefix + phone_type + feats_filename
                                      + normalized_suffix + '.npy')),
             np_utterance_normalized_feats)
 
@@ -682,10 +714,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dur_limit', type=lambda d: int(d)*60*60*fs)
     parser.add_argument('--gender', type=str)
-    parser.add_argument('--speakers', nargs='+')
+    parser.add_argument('--speakers', nargs='+', type=str)
     parser.add_argument('data_dir', type=Path)
     parser.add_argument('normalized_dir', type=Path)
-    parser.add_argument('-n', '--nphones', type=Path)
+    parser.add_argument('-m', '--mono_di_tri_phones', type=Path)
 
     args = parser.parse_args()
     main_args = {'orig_dirpath':args.data_dir, 'processed_dirpath':args.normalized_dir}
@@ -693,8 +725,8 @@ if __name__ == '__main__':
         main_args['duration_limit']=args.dur_limit
     if args.gender:
         main_args['gender']=args.gender
-    if args.nphones:
-        main_args['nphones']=utils.load_json(args.nphones)
+    if args.mono_di_tri_phones:
+        main_args['mono_di_tri_phones']=utils.load_json(args.mono_di_tri_phones)
     if args.speakers:
         main_args['speakers'] = set(args.speakers)
     preprocess(**main_args)
