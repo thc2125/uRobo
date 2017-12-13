@@ -1,10 +1,16 @@
+import json
+import math
+import numpy as np
+
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
-import json
 import pysptk
 
+from fastdtw import fastdtw
+from scipy.spatial.distance import euclidean
+
+# Define constants
 phones_filename = 'phones'
 utterances_filename = 'utterances'
 vocabulary_filename = 'vocab'
@@ -13,23 +19,36 @@ lexicon_filename = 'align_lexicon'
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
+
 utt2phones_filename = 'utt2phone'
-utt2alignments_filename = 'utt2alignments'
-mono_di_tri_phones_filename = 'mono_di_tri_phones'
+utt2diphones_filename = 'utt2diphones'
+utt2triphones_filename = 'utt2triphones'
 utt2mono_di_tri_phones_filename = 'utt2mono_di_tri_phones'
+
+utt2alignments_filename = 'utt2alignments'
+utt2diphone_alignments_filename = 'utt2diphone_alignments'
+utt2triphone_alignments_filename = 'utt2triphone_alignments'
 utt2mono_di_tri_alignments_filename = 'utt2mono_di_tri_alignments'
-utt2target_feats_filename = 'utt2target_feats'
+
+utt_prefix = 'utt_'
+
+words_filename = 'words'
+
+utt2_id = 'utt2'
+
+mono_di_tri_phones_filename = 'mono_di_tri_phones'
+
+target_feats_suffix = 'target_feats'
+
+mean_suffix='_mean'
+std_suffix='_std'
+
 spkr2mean_prefix = 'spkr2mean_'
 spkr2std_prefix = 'spkr2std_'
 spkr_independent_prefix = 'spkr_ind_'
 normalized_suffix = '_normalized'
-target_feats_filename = 'target_feats'
 utt2concat_feats_filename = 'utt2concat_feats'
-concat_feats_filename = 'concat_feats'
-target_feats_mean_filename = 'target_feats_mean'
-concat_feats_mean_filename  = 'concat_feats_mean'
-target_feats_std_filename = 'target_feats_std'
-concat_feats_std_filename  = 'concat_feats_std'
+
 
 def load_data(processed_dirpath):
     with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
@@ -54,6 +73,14 @@ def load_data(processed_dirpath):
         utt2phones=json.load(utt2phones_file)
     with (processed_dirpath / (utt2alignments_filename + '.json')).open() as utt2alignments_file:
         utt2alignments=json.load(utt2alignments_file)
+
+    utt2diphones = load_json(processed_dirpath / (utt2diphones_filename + '.json'))
+    utt2diphone_alignments = load_json(processed_dirpath / (utt2diphone_alignments_filename + '.json'))
+
+    utt2triphones = load_json(processed_dirpath / (utt2triphones_filename + '.json'))
+    utt2triphone_alignments = load_json(processed_dirpath / (utt2triphone_alignments_filename + '.json'))
+
+
     with (processed_dirpath / (utt2mono_di_tri_phones_filename + '.json')).open() as utt2mono_di_tri_phones_file:
         utt2mono_di_tri_phones=json.load(utt2mono_di_tri_phones_file)
     with (processed_dirpath / (utt2mono_di_tri_alignments_filename + '.json')).open() as utt2mono_di_tri_alignments_file:
@@ -68,6 +95,10 @@ def load_data(processed_dirpath):
             utt2words,
             utt2phones, 
             utt2alignments, 
+            utt2diphones,
+            utt2diphone_alignments,
+            utt2triphones,
+            utt2triphone_alignments,
             utt2mono_di_tri_phones,
             utt2mono_di_tri_alignments)
 
@@ -79,26 +110,31 @@ def load_json(json_filepath):
     with json_filepath.open() as jsonfile:
         return json.load(jsonfile)
 
-def load_target_feats(data_dir):
-    utt2target_feats = load_json((data_dir / (utt2target_feats_filename + '.json')))
-    spkr2target_feats_mean = load_json((data_dir / 
-                                        (spkr2mean_prefix
-                                         + target_feats_filename 
-                                         + '.json')))
-    spkr2target_feats_std = load_json((data_dir / 
-                                        (spkr2std_prefix
-                                         + target_feats_filename 
-                                         + '.json')))
+def load_target_feats(data_dir, mono=False):
+    phone_type = mono_di_tri_phones_filename if not mono else phones_filename 
+    utt2target_feats = load_json(
+            (data_dir 
+             / (utt2_id
+                + phone_type
+                + target_feats_suffix
+                + '.json')))
 
-    target_feats_mean = np.load(str(data_dir 
-                                    / (target_feats_mean_filename + '.npy')))
-    target_feats_std = np.load(str(data_dir 
-                                   / (target_feats_std_filename + '.npy')))
-    return (utt2target_feats, 
-            spkr2target_feats_mean, 
-            spkr2target_feats_std, 
-            target_feats_mean, 
-            target_feats_std)
+    spkr2target_feats_mean = load_json(
+            (data_dir 
+             / (spkr2mean_prefix
+                + phone_type
+                + target_feats_suffix
+                + '.json')))
+    spkr2target_feats_std = load_json(
+            (data_dir 
+             / (spkr2std_prefix
+                + phone_type
+                + target_feats_suffix
+                + '.json')))
+
+    return (utt2target_feats,
+            spkr2target_feats_mean,
+            spkr2target_feats_std)
 
 def load_concat_feats(data_dir):
     '''
@@ -142,19 +178,19 @@ def get_phone2idx(phones_path):
             idx2phone[idx]=phone
     return phone2idx, idx2phone
 
-def cross_fade(samples1, samples2):
-    '''
-    if len(samples1) < len(samples2):
-        new_samples = np.add(np.pad(samples1, 
-                                    (0, len(samples2)-len(samples1)), mode='constant'),
-                             samples2)
-    else:
-        new_samples = np.add(np.pad(samples2, 
-                                    (len(samples1)-len(samples2), 0), 
-                                    mode='constant'),
-                             samples1)
-    #new_samples = np.concatenate([samples1, samples2])
-    '''
-    new_samples = samples2
+def join(samples1, samples2):
+    _, time_warp = fastdtw(samples1, samples2)
+
+    new_samples = []
+    for align_idx in range(len(time_warp)):
+        align = time_warp[align_idx]
+        warp_factor = math.log(align_idx)/len(time_warp) if align_idx > 0 else 0
+        print(warp_factor)
+        warp_factors = [1-warp_factor, warp_factor]
+        new_sample = ((warp_factors[0] * samples1[align[0]]) 
+                      + (warp_factors[1] * samples2[align[1]]))
+        new_samples.append(new_sample)
+    new_samples = np.array(new_samples)
+    #new_samples = np.concatenate([samples1,samples2])
     return new_samples
 
