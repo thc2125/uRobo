@@ -21,7 +21,8 @@ class NNConcatenator():
     fs=16000
     def __init__(self, 
                  data_dir,
-                 target_predicter_model_path):
+                 target_predicter_model_path,
+                 mono=False):
         ''' Initializes the synthesizer
         Keyword Arguments
         data_dir -- directory to the audio data and appropriate data structures
@@ -36,6 +37,11 @@ class NNConcatenator():
          self.utt2words,
          self.utt2phones, 
          self.utt2alignments, 
+         self.utt2diphones,
+         self.utt2diphone_alignments,
+         self.utt2triphones,
+         self.utt2triphone_alignments,
+
          self.utt2mono_di_tri_phones,
          self.utt2mono_di_tri_alignments) = utils.load_data(data_dir)
 
@@ -48,10 +54,7 @@ class NNConcatenator():
         
         (self.utt2target_feats, 
          self.spkr2target_feats_mean, 
-         self.spkr2target_feats_std, 
-         self.target_feats_mean, 
-         self.target_feats_std
-         self.spkr2meantarget_feats) = utils.load_target_feats(data_dir)
+         self.spkr2target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
 
         '''
         (self.utt2concat_feats, 
@@ -117,8 +120,8 @@ class NNConcatenator():
                         self.spkr2target_feats_std[spkr])
 
                 candidate_unit_target_feats_fs = ((candidate_unit_target_feats
-                                                   - self.target_feats_mean)
-                                                  / self.target_feats_std)
+                                                   - candidate_unit_target_feats_mean)
+                                                  / candidate_unit_target_feats_std)
 
                 # TODO: Change to match RNN Paper
                 c_t = np.sum(np.fabs(np.subtract(candidate_unit_target_feats_fs,
@@ -127,7 +130,7 @@ class NNConcatenator():
                 c_c = float('inf')
                 prev_idx = 0
                 # Reset our features to exclude duration and initial f_0
-                candidate_unit_concat_feats_fs = candidate_unit_target_feats_fs[1::2]
+                candidate_unit_concat_feats = candidate_unit_target_feats[1::2]
                 for prev_candidate_unit_idx in range(len(candidates[idx-1])):
                     # TODO: Experiment with different features for
                     # concatenation?
@@ -153,10 +156,15 @@ class NNConcatenator():
                     curr_c_c = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats_fs,
                                                           prev_candidate_unit_concat_feats_fs)))
                     '''
-                    curr_c_c_unscaled = np.sum(np.fabs(np.subtract(candidate_unit_concat_feats,
-                                                                   prev_candidate_unit_concat_feats)))
-                    curr_cc = ((curr_c_c_unscaled-self.target_feats_mean[1::2])
-                               / self.target_feats_std[1::2])
+                    # If the two units overlap, it's a zero cost: we like overlaps!
+                    if ((prev_candidate_unit[0] == candidate_unit[0]) and 
+                        (prev_candidate_unit[1] == candidate_unit[1]-1)):
+                        curr_c_c = 0
+                    else:
+                        curr_c_c_unscaled = (np.fabs(np.subtract(candidate_unit_concat_feats,
+                                                                 prev_candidate_unit_concat_feats)))
+                        curr_c_c = np.sum((curr_c_c_unscaled-candidate_unit_target_feats_mean[1::2])
+                                           / candidate_unit_target_feats_std[1::2])
                     if curr_c_c < c_c:
                         c_c = curr_c_c
                         prev_idx = prev_candidate_unit_idx
@@ -177,7 +185,7 @@ class NNConcatenator():
             if cand_final_C < final_C:
                 final_C = cand_final_C
                 final_unit_idx = candidate_unit_idx
-
+        print("FINAL COST: " + str(final_C))
         phone_idx = -1
         back_idx = final_unit_idx
         # Now go through the back table
@@ -227,14 +235,16 @@ class NNConcatenator():
             # First try to get a triphone
             if idx + 2 < len(phones):
                 triphone = tuple(phones[idx:idx+3])
-                if triphone in self.mono_di_tri_phones2idx:
+                if (triphone in self.mono_di_tri_phones2idx
+                    and len(self.phone2units[triphone]) > 1):
                     mono_di_tri_phones.append(triphone)
                     idx += 2
                     continue
             # We weren't able to get a usable triphone, fall back to diphone
             if idx + 1 < len(phones):
                 diphone = tuple(phones[idx:idx+2])
-                if diphone in self.mono_di_tri_phones2idx:
+                if (diphone in self.mono_di_tri_phones2idx
+                    and len(self.phone2units[diphone]) > 1):
                     mono_di_tri_phones.append(diphone)
                     idx += 1
                     continue
@@ -294,7 +304,7 @@ class NNConcatenator():
                 phones.append(utterance_wav[phone_start:phone_end])
 
             if join_phones:
-                unit_wavs[-1] = utils.cross_fade(unit_wavs[-1], phones[0])
+                unit_wavs[-1] = utils.join(unit_wavs[-1], phones[0])
                 '''
                 else:
                     unit_wavs[-1] = utils.cross_fade(unit_wavs[-1], phones[1])
