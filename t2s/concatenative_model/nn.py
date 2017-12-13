@@ -20,11 +20,11 @@ class NN():
     def _init_model(self, utt_len, num_phones, num_features):
         from keras.models import Model, load_model
         from keras.layers import Bidirectional, Dense, Embedding, Input, LSTM, TimeDistributed
-        from keras.optimizers import SGD
+        from keras.optimizers import SGD, RMSprop
 
         phone_input = Input(shape=(utt_len,), dtype='int32', name='phone_input')
 
-        embeddings = Embedding(output_dim=50, 
+        embeddings = Embedding(output_dim=32, 
                                input_dim=num_phones, 
                                input_length=utt_len, 
                                mask_zero=True)(phone_input)
@@ -33,12 +33,12 @@ class NN():
         context_embeddings2 = Bidirectional(LSTM(57, return_sequences=True))(context_embeddings1)
         context_embeddings3 = Bidirectional(LSTM(46, return_sequences=True))(context_embeddings2)
 
-        features = TimeDistributed(Dense(num_features, activation='relu'))(context_embeddings3)
+        features = TimeDistributed(Dense(num_features, activation='tanh'))(context_embeddings3)
 
         model = Model(inputs=phone_input, outputs=features)
-        optimizer = SGD()
+        optimizer = RMSprop()
         model.compile(optimizer=optimizer,
-                      loss='mean_squared_error',
+                      loss='mse',
                       metrics=['accuracy'])
         return model
 
@@ -79,8 +79,8 @@ if __name__ == "__main__":
     if not model_dir.exists():
         model_dir.mkdir(parents=True)
 
-    utterance_phone_file = 'utt2mono_di_tri_phones.npy'
-    utterance_phone_feats_file = 'target_feats_normalized.npy'
+    utterance_phone_file = 'utt_mono_di_tri_phones.npy'
+    utterance_phone_feats_file = 'spkr_ind_mono_di_tri_phonestarget_feats_normalized.npy'
 
     train_phones_unpad = (np.load(str(train_corpus_dir / utterance_phone_file)))
     train_features_unpad = (np.load(str(train_corpus_dir / utterance_phone_feats_file)))
@@ -88,6 +88,8 @@ if __name__ == "__main__":
     test_phones_unpad = (np.load(str(test_corpus_dir / utterance_phone_file)))
     test_features_unpad = (np.load(str(test_corpus_dir / utterance_phone_feats_file)))
 
+    print(train_phones_unpad.shape)
+    print(test_phones_unpad.shape)
     utt_len = max(train_phones_unpad.shape[-1], test_phones_unpad.shape[-1])
 
     train_padding = utt_len - train_phones_unpad.shape[-1]
@@ -95,6 +97,8 @@ if __name__ == "__main__":
 
     train_phones = np.pad(train_phones_unpad, [(0,0), (0,train_padding)], mode='constant')
     train_features = np.pad(train_features_unpad, [(0,0), (0,train_padding), (0,0)], mode='constant')
+    print(utt_len)
+    print(train_features.shape)
 
     test_phones = np.pad(test_phones_unpad, [(0,0), (0,test_padding)], mode='constant')
     test_features = np.pad(test_features_unpad, [(0,0), (0,test_padding), (0,0)], mode='constant')
