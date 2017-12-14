@@ -54,9 +54,9 @@ class NNConcatenator():
         (self.utt2mono_di_tri_target_feats, 
          self.spkr2mono_di_tri_target_feats_mean, 
          self.spkr2mono_di_tri_target_feats_std,
-         utt2phones_target_feats,
-         spkr2phones_target_feats_mean,
-         spkr2phones_target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
+         self.utt2phones_target_feats,
+         self.spkr2phones_target_feats_mean,
+         self.spkr2phones_target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
 
         '''
         (self.utt2concat_feats, 
@@ -117,11 +117,25 @@ class NNConcatenator():
             back_matrix[0].append(candidate_unit_idx)
         # Now run the DP algorithm for the remaining candidates
         for idx in range(1, len(candidates)):
+            print(idx)
             cost_matrix.append([])
             back_matrix.append([])
             candidate = candidates[idx]
+            '''
+            print(len(candidates[idx]))
+            print(phone_sequence[idx])
+            '''
             unit_target_feats_fs = phone_target_feats_fs[idx]
             for candidate_unit in candidate:
+                if candidate_unit[0] == 'phone':
+                    utt2target_feats=self.utt2phones_target_feats
+                    spkr2target_feats_mean = self.spkr2phones_target_feats_mean
+                    spkr2target_feats_std = self.spkr2phones_target_feats_std
+                elif candidate_unit[0] == 'mono_di_tri':
+                    utt2target_feats=self.utt2mono_di_tri_target_feats
+                    spkr2target_feats_mean = self.spkr2mono_di_tri_target_feats_mean
+                    spkr2target_feats_std = self.spkr2mono_di_tri_target_feats_std
+
                 candidate_unit_target_feats = np.array(
                     utt2target_feats[candidate_unit[1]][candidate_unit[2]])
                 # Scale the features according to the speaker's mean and std
@@ -149,8 +163,16 @@ class NNConcatenator():
                     prev_candidate_unit = candidates[idx-1][prev_candidate_unit_idx]
 
                     #print(self.utt2phones[prev_candidate_unit[0]][prev_candidate_unit[1]])
+                    if prev_candidate_unit[0] == 'phone':
+                        prev_utt2target_feats=self.utt2phones_target_feats
+                        prev_spkr2target_feats_mean = self.spkr2phones_target_feats_mean
+                        prev_spkr2target_feats_std = self.spkr2phones_target_feats_std
+                    elif prev_candidate_unit[0] == 'mono_di_tri':
+                        prev_utt2target_feats=self.utt2mono_di_tri_target_feats
+                        prev_spkr2target_feats_mean = self.spkr2mono_di_tri_target_feats_mean
+                        prev_spkr2target_feats_std = self.spkr2mono_di_tri_target_feats_std
                     prev_candidate_unit_concat_feats = np.array(
-                            utt2target_feats[prev_candidate_unit[1]]
+                            prev_utt2target_feats[prev_candidate_unit[1]]
                                                  [prev_candidate_unit[2]])[2:]
                     # We don't want to scale these for the initial subtraction. 
                     # We're concerned here with
@@ -182,6 +204,11 @@ class NNConcatenator():
                         c_c = curr_c_c
                         prev_idx = prev_candidate_unit_idx
 
+                ''' 
+                print("IDX " + str(idx))
+                print("prev_idx " + str(prev_idx))
+                print("cost_matrix " + str(len(cost_matrix)) + ' ' + str(len(cost_matrix[idx-1])))
+                '''
                 C = c_t + c_c + cost_matrix[idx-1][prev_idx]
                 cost_matrix[idx].append(C)
                 back_matrix[idx].append(prev_idx)
@@ -209,7 +236,10 @@ class NNConcatenator():
             phone_idx -= 1
 
         final_units.reverse() 
-        #final_units_phones = [self.utt2mono_di_tri_phones[utterance][idx] for utterance, idx in final_units]
+        final_units_phones = [self.utt2mono_di_tri_phones[utterance][idx] 
+                              if pt=='mono_di_tri'
+                              else self.utt2phones[utterance][idx] 
+                              for pt, utterance, idx in final_units]
         print(final_units_phones)
         print(phone_sequence)
         concatenation = self._concatenate(final_units)
@@ -288,13 +318,14 @@ class NNConcatenator():
         # TODO: implement backoff
         candidates = []
         for phones in phone_sequence:
-            print(phones)
-            if phones in self.mono_di_tri_phone2units:
+            print(str(phones) + " " + str(phones in self.mono_di_tri_phone2units))
+            if len(self.mono_di_tri_phone2units[phones])>0:
+                print("MISS")
                 candidates.append(self.mono_di_tri_phone2units[phones])
-            if phones[0] in self.phone2units:
-                candidates.append(self.phone2units[phones])
-            if (phones[0] not in self.phone2units and 
-                phones not in self.mono_di_tri_phone2units):
+            elif len(phones)==1 and len(self.phone2units[phones[0]]) > 0:
+                print("HIT!")
+                candidates.append(self.phone2units[phones[0]])
+            else:
                 raise KeyError('No candidate units for phones ' + str(phones))
         return phone_sequence, candidates
 
