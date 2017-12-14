@@ -132,9 +132,35 @@ def load_target_feats(data_dir, mono=False):
                 + target_feats_suffix
                 + '.json')))
 
+    utt2phonestargets_feats = load_json(
+            (data_dir 
+             / (utt2_id
+                + phones_filename
+                + target_feats_suffix
+                + '.json')))
+
+    spkr2phonestarget_feats_mean = load_json(
+            (data_dir 
+             / (spkr2mean_prefix
+                + phones_filename
+                + target_feats_suffix
+                + '.json')))
+
+    spkr2phonestarget_feats_std = load_json(
+            (data_dir 
+             / (spkr2std_prefix
+                + phones_filename
+                + target_feats_suffix
+                + '.json')))
+
+
+
     return (utt2target_feats,
             spkr2target_feats_mean,
-            spkr2target_feats_std)
+            spkr2target_feats_std,
+            utt2phonestargets_feats,
+            spkr2phonestarget_feats_mean,
+            spkr2phonestarget_feats_std)
 
 def load_concat_feats(data_dir):
     '''
@@ -178,19 +204,20 @@ def get_phone2idx(phones_path):
             idx2phone[idx]=phone
     return phone2idx, idx2phone
 
-def join(samples1, samples2):
-    _, time_warp = fastdtw(samples1, samples2)
-
+def join(samples1, samples2, fade_function=lambda i,t: (1-math.log(i,t),math.log(i,t)) if i>0 else (1, 0)):
     new_samples = []
-    for align_idx in range(len(time_warp)):
-        align = time_warp[align_idx]
-        warp_factor = math.log(align_idx)/len(time_warp) if align_idx > 0 else 0
-        print(warp_factor)
-        warp_factors = [1-warp_factor, warp_factor]
-        new_sample = ((warp_factors[0] * samples1[align[0]]) 
-                      + (warp_factors[1] * samples2[align[1]]))
-        new_samples.append(new_sample)
-    new_samples = np.array(new_samples)
+    join_len = len(min(samples1, samples2, key=len))
+    for sample_idx in range(join_len):
+        fade_factor = fade_function(sample_idx, join_len)
+        '''
+        print(samples1[sample_idx])
+        print(samples2[sample_idx])
+        print(fade_factor)
+        print(math.floor(fade_factor[0] * samples1[sample_idx]))
+        print(math.ceil(fade_factor[1] * samples2[sample_idx]))
+        print()
+        '''
+        new_samples.append(math.floor(fade_factor[0] * samples1[sample_idx])
+                           + math.ceil(fade_factor[1] * samples2[sample_idx]))
     #new_samples = np.concatenate([samples1,samples2])
-    return new_samples
-
+    return np.array(new_samples, dtype=np.int16)
