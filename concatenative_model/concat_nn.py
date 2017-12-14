@@ -82,9 +82,12 @@ class NNConcatenator():
 
         # Begin viterbi.
         # Initialize the Viterbi matrices
+        print("Initializing viterbi matrix.")
         cost_matrix = [[]]
         back_matrix = [[]]
         beg_target_feats=phone_target_feats_fs[0]
+        print("Going through " + str(len(candidates[0])) + " phone 0"
+              + " candidates.")
         for candidate_unit_idx in range(len(candidates[0])):
             # For this round, we're only looking for the target cost
             candidate_unit = candidates[0][candidate_unit_idx]
@@ -117,14 +120,11 @@ class NNConcatenator():
             back_matrix[0].append(candidate_unit_idx)
         # Now run the DP algorithm for the remaining candidates
         for idx in range(1, len(candidates)):
-            print(idx)
             cost_matrix.append([])
             back_matrix.append([])
             candidate = candidates[idx]
-            '''
-            print(len(candidates[idx]))
-            print(phone_sequence[idx])
-            '''
+            print("Going through " + str(len(candidate)) + " phone " + str(idx)
+                  + " candidates.")
             unit_target_feats_fs = phone_target_feats_fs[idx]
             for candidate_unit in candidate:
                 if candidate_unit[0] == 'phone':
@@ -191,6 +191,7 @@ class NNConcatenator():
                                                           prev_candidate_unit_concat_feats_fs)))
                     '''
                     # If the two units overlap, it's a zero cost: we like overlaps!
+                    # Moreover if they're actually sequential, it is also zero cost
                     if ((prev_candidate_unit[0] == candidate_unit[0]) and 
                         (prev_candidate_unit[1] == candidate_unit[1]) and 
                         (prev_candidate_unit[2] == candidate_unit[2]-1)):
@@ -198,30 +199,25 @@ class NNConcatenator():
                     else:
                         curr_c_c_unscaled = (np.fabs(np.subtract(candidate_unit_concat_feats,
                                                                  prev_candidate_unit_concat_feats)))
-                        curr_c_c = np.sum((curr_c_c_unscaled-candidate_unit_target_feats_mean[1::2])
-                                           / candidate_unit_target_feats_std[1::2])
+                        curr_c_c = np.sum(np.fabs((curr_c_c_unscaled-candidate_unit_target_feats_mean[1::2])
+                                           / candidate_unit_target_feats_std[1::2]))
                     if curr_c_c < c_c:
                         c_c = curr_c_c
                         prev_idx = prev_candidate_unit_idx
 
-                ''' 
-                print("IDX " + str(idx))
-                print("prev_idx " + str(prev_idx))
-                print("cost_matrix " + str(len(cost_matrix)) + ' ' + str(len(cost_matrix[idx-1])))
-                '''
                 C = c_t + c_c + cost_matrix[idx-1][prev_idx]
                 cost_matrix[idx].append(C)
                 back_matrix[idx].append(prev_idx)
         candidate_lens = [len(candidates) for candidates in cost_matrix]
         act_candidate_lens = [len(candidates) for candidates in candidates]
-        #print(candidate_lens)
-        #print(act_candidate_lens)
         # Now find the minimum of the last row
         final_C = float('inf')
         final_unit_idx = 0
         final_units = []
         for candidate_unit_idx in range(len(cost_matrix[-1])):
             cand_final_C = cost_matrix[-1][candidate_unit_idx]
+            if cand_final_C < 0:
+                print(cand_final_c)
             if cand_final_C < final_C:
                 final_C = cand_final_C
                 final_unit_idx = candidate_unit_idx
@@ -240,8 +236,8 @@ class NNConcatenator():
                               if pt=='mono_di_tri'
                               else self.utt2phones[utterance][idx] 
                               for pt, utterance, idx in final_units]
-        print(final_units_phones)
-        print(phone_sequence)
+        print("FINAL PHONES: " + str(final_units_phones))
+        #print(phone_sequence)
         concatenation = self._concatenate(final_units)
         wavfile.write(str(output_path), self.fs, concatenation)
         return concatenation
@@ -274,8 +270,10 @@ class NNConcatenator():
 
         for word in text.split():
             phones += self.word2phones[word.upper()]
-        # End with a final silence
-        phones += ['SIL']
+        # Optionally end with a final silence. In larger corpora this takes a 
+        # a very long time to synthesize as it searches through all of the 
+        # silences i.e. a goodly portion of the data
+        #phones += ['SIL']
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
@@ -318,12 +316,12 @@ class NNConcatenator():
         # TODO: implement backoff
         candidates = []
         for phones in phone_sequence:
-            print(str(phones) + " " + str(phones in self.mono_di_tri_phone2units))
+            #print(str(phones) + " " + str(phones in self.mono_di_tri_phone2units))
             if len(self.mono_di_tri_phone2units[phones])>0:
-                print("MISS")
+                #print("MISS")
                 candidates.append(self.mono_di_tri_phone2units[phones])
             elif len(phones)==1 and len(self.phone2units[phones[0]]) > 0:
-                print("HIT!")
+                #print("HIT!")
                 candidates.append(self.phone2units[phones[0]])
             else:
                 raise KeyError('No candidate units for phones ' + str(phones))
@@ -335,7 +333,7 @@ class NNConcatenator():
 
     def _phone_seq2idxs(self, phone_seq):
         idx_shape = self.target_predicter.get_input_length()
-        print(idx_shape)
+        #print(idx_shape)
         idx_sequence = np.pad([self.mono_di_tri_phones2idx[phones] 
                                for phones in phone_seq], 
                               (0, idx_shape-len(phone_seq)),
