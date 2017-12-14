@@ -34,6 +34,8 @@ def train_nn_model(train_corpus_dir, test_corpus_dir, model_path, epochs=20):
 
     print(nn.evaluate(test_phones, test_features))
 
+    return nn
+
 def prepare_data(train_corpus_dir, test_corpus_dir):
     '''A function to load data for ingestion into the neural network
     Keyword Arguments
