@@ -6,7 +6,7 @@ from scipy.io import wavfile
 import preprocess
 import utils
 
-from t2s.concatenative_model.nn import NN
+from target_feat_predicter.nn import NN
 
 import numpy as np
 
@@ -41,20 +41,22 @@ class NNConcatenator():
          self.utt2diphone_alignments,
          self.utt2triphones,
          self.utt2triphone_alignments,
-
          self.utt2mono_di_tri_phones,
          self.utt2mono_di_tri_alignments) = utils.load_data(data_dir)
 
         self.word2phones = utils.load_json(data_dir / (utils.lexicon_filename + '.json'))
 
-        self.phone2units = self._get_phone2units()
-        self.target_predicter = NN(model_path=target_predicter_model_path)
+        self.phone2units, self.mono_di_tri_phone2units = self._get_phone2units()
+        self.target_predicter = NN(existing_model_path=target_predicter_model_path)
 
         self.data_dir = data_dir
         
-        (self.utt2target_feats, 
-         self.spkr2target_feats_mean, 
-         self.spkr2target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
+        (self.utt2mono_di_tri_target_feats, 
+         self.spkr2mono_di_tri_target_feats_mean, 
+         self.spkr2mono_di_tri_target_feats_std,
+         utt2phones_target_feats,
+         spkr2phones_target_feats_mean,
+         spkr2phones_target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
 
         '''
         (self.utt2concat_feats, 
@@ -86,15 +88,25 @@ class NNConcatenator():
         for candidate_unit_idx in range(len(candidates[0])):
             # For this round, we're only looking for the target cost
             candidate_unit = candidates[0][candidate_unit_idx]
+            if candidate_unit[0] == 'phone':
+                utt2target_feats=self.utt2phones_target_feats
+                spkr2target_feats_mean = self.spkr2phones_target_feats_mean
+                spkr2target_feats_std = self.spkr2phones_target_feats_std
+            elif candidate_unit[0] == 'mono_di_tri':
+                utt2target_feats=self.utt2mono_di_tri_target_feats
+                spkr2target_feats_mean = self.spkr2mono_di_tri_target_feats_mean
+                spkr2target_feats_std = self.spkr2mono_di_tri_target_feats_std
+
+
             candidate_unit_feats = (
                 np.array(
-                    self.utt2target_feats[candidate_unit[0]][candidate_unit[1]]))
+                    utt2target_feats[candidate_unit[1]][candidate_unit[2]]))
             # Scale the features according to the speaker's mean and std
-            spkr = candidate_unit[0].split('-')[0]
+            spkr = candidate_unit[1].split('-')[0]
             candidate_unit_target_feats_mean = np.array(
-                    self.spkr2target_feats_mean[spkr])
+                    spkr2target_feats_mean[spkr])
             candidate_unit_target_feats_std = np.array(
-                    self.spkr2target_feats_std[spkr])
+                    spkr2target_feats_std[spkr])
             candidate_unit_feats_fs = ((candidate_unit_feats
                                         - candidate_unit_target_feats_mean)
                                        / candidate_unit_target_feats_std)
@@ -111,13 +123,13 @@ class NNConcatenator():
             unit_target_feats_fs = phone_target_feats_fs[idx]
             for candidate_unit in candidate:
                 candidate_unit_target_feats = np.array(
-                    self.utt2target_feats[candidate_unit[0]][candidate_unit[1]])
+                    utt2target_feats[candidate_unit[1]][candidate_unit[2]])
                 # Scale the features according to the speaker's mean and std
-                spkr = candidate_unit[0].split('-')[0]
+                spkr = candidate_unit[1].split('-')[0]
                 candidate_unit_target_feats_mean = np.array(
-                        self.spkr2target_feats_mean[spkr])
+                        spkr2target_feats_mean[spkr])
                 candidate_unit_target_feats_std = np.array(
-                        self.spkr2target_feats_std[spkr])
+                        spkr2target_feats_std[spkr])
 
                 candidate_unit_target_feats_fs = ((candidate_unit_target_feats
                                                    - candidate_unit_target_feats_mean)
@@ -138,8 +150,8 @@ class NNConcatenator():
 
                     #print(self.utt2phones[prev_candidate_unit[0]][prev_candidate_unit[1]])
                     prev_candidate_unit_concat_feats = np.array(
-                            self.utt2target_feats[prev_candidate_unit[0]]
-                                                 [prev_candidate_unit[1]])[2:]
+                            utt2target_feats[prev_candidate_unit[1]]
+                                                 [prev_candidate_unit[2]])[2:]
                     # We don't want to scale these for the initial subtraction. 
                     # We're concerned here with
                     # absolute relation of the two units to each other.
@@ -158,7 +170,8 @@ class NNConcatenator():
                     '''
                     # If the two units overlap, it's a zero cost: we like overlaps!
                     if ((prev_candidate_unit[0] == candidate_unit[0]) and 
-                        (prev_candidate_unit[1] == candidate_unit[1]-1)):
+                        (prev_candidate_unit[1] == candidate_unit[1]) and 
+                        (prev_candidate_unit[2] == candidate_unit[2]-1)):
                         curr_c_c = 0
                     else:
                         curr_c_c_unscaled = (np.fabs(np.subtract(candidate_unit_concat_feats,
@@ -196,7 +209,7 @@ class NNConcatenator():
             phone_idx -= 1
 
         final_units.reverse() 
-        final_units_phones = [self.utt2mono_di_tri_phones[utterance][idx] for utterance, idx in final_units]
+        #final_units_phones = [self.utt2mono_di_tri_phones[utterance][idx] for utterance, idx in final_units]
         print(final_units_phones)
         print(phone_sequence)
         concatenation = self._concatenate(final_units)
@@ -205,11 +218,19 @@ class NNConcatenator():
 
     def _get_phone2units(self):
         phone2units = defaultdict(list)
+        mono_di_tri_phone2units = defaultdict(list)
         for utterance in self.utt2phones:
+            # Get phone level candidates
+            for unit_idx in range(len(self.utt2phones[utterance])):
+                phone = self.utt2phones[utterance][unit_idx]
+                phone2units[phone].append(('phone', utterance, unit_idx))
+            # Get mono_di_tri_phone_level_candidates
             for unit_idx in range(len(self.utt2mono_di_tri_phones[utterance])):
-                phone2units[tuple(self.utt2mono_di_tri_phones[utterance][unit_idx])].append(
-                        (utterance, unit_idx))
-        return phone2units
+                mono_di_tri_phone = (
+                        tuple(self.utt2mono_di_tri_phones[utterance][unit_idx]))
+                mono_di_tri_phone2units[mono_di_tri_phone].append(
+                        ('mono_di_tri', utterance, unit_idx))
+        return phone2units, mono_di_tri_phone2units
 
     def _get_phone_sequence(self, text):
         phones = self._get_phones(text)
@@ -220,12 +241,11 @@ class NNConcatenator():
         #TODO: Get a better model for t2p (another neural model?)
         # Start with the silence phone
         phones = []
+
         for word in text.split():
-            #phones += ['SIL']
             phones += self.word2phones[word.upper()]
-            # Add silence between words
         # End with a final silence
-        #phones += ['SIL']
+        phones += ['SIL']
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
@@ -236,7 +256,7 @@ class NNConcatenator():
             if idx + 2 < len(phones):
                 triphone = tuple(phones[idx:idx+3])
                 if (triphone in self.mono_di_tri_phones2idx
-                    and len(self.phone2units[triphone]) > 1):
+                    and len(self.mono_di_tri_phone2units[triphone]) > 1):
                     mono_di_tri_phones.append(triphone)
                     idx += 2
                     continue
@@ -244,7 +264,7 @@ class NNConcatenator():
             if idx + 1 < len(phones):
                 diphone = tuple(phones[idx:idx+2])
                 if (diphone in self.mono_di_tri_phones2idx
-                    and len(self.phone2units[diphone]) > 1):
+                    and len(self.mono_di_tri_phone2units[diphone]) > 1):
                     mono_di_tri_phones.append(diphone)
                     idx += 1
                     continue
@@ -252,7 +272,9 @@ class NNConcatenator():
             # If we couldn't get a usable diphone, get the monophone and move on
             # Note that this monophone underlaps the previous phone tuple
             monophone = tuple(phones[idx:idx+1])
-            if monophone in self.mono_di_tri_phones2idx:
+            if (monophone in self.mono_di_tri_phones2idx
+                    and (len(self.mono_di_tri_phone2units[monophone]) > 1 or
+                         len(self.phone2units[monophone[0]]) > 1)):
                 mono_di_tri_phones.append(monophone)
                 idx += 1
 
@@ -267,9 +289,12 @@ class NNConcatenator():
         candidates = []
         for phones in phone_sequence:
             print(phones)
-            if phones in self.phone2units:
+            if phones in self.mono_di_tri_phone2units:
+                candidates.append(self.mono_di_tri_phone2units[phones])
+            if phones[0] in self.phone2units:
                 candidates.append(self.phone2units[phones])
-            else:
+            if (phones[0] not in self.phone2units and 
+                phones not in self.mono_di_tri_phone2units):
                 raise KeyError('No candidate units for phones ' + str(phones))
         return phone_sequence, candidates
 
@@ -279,6 +304,7 @@ class NNConcatenator():
 
     def _phone_seq2idxs(self, phone_seq):
         idx_shape = self.target_predicter.get_input_length()
+        print(idx_shape)
         idx_sequence = np.pad([self.mono_di_tri_phones2idx[phones] 
                                for phones in phone_seq], 
                               (0, idx_shape-len(phone_seq)),
@@ -288,10 +314,15 @@ class NNConcatenator():
     def _concatenate(self, final_units):
         unit_wavs = []
         join_phones = False
-        for utterance, unit_idx in final_units:
+        for phone_type, utterance, unit_idx in final_units:
             #print((utterance, unit_idx))
             utterance_dirs = preprocess.get_utterance_dirs(utterance)
-            alignments = self.utt2mono_di_tri_alignments[utterance][unit_idx]
+            if phone_type == 'phone':
+                utt2alignments=self.utt2alignments
+                alignments = [utt2alignments[utterance][unit_idx]]
+            elif phone_type == 'mono_di_tri':
+                utt2alignments=self.utt2mono_di_tri_alignments
+                alignments = utt2alignments[utterance][unit_idx]
 
             _, utterance_wav = wavfile.read(str(self.data_dir
                                             / utterance_dirs 
@@ -309,7 +340,8 @@ class NNConcatenator():
                 else:
                     unit_wavs[-1] = utils.cross_fade(unit_wavs[-1], phones[1])
                 '''
-                unit_wavs += phones[1:]
+                if len(phones) > 1:
+                    unit_wavs += phones[1:]
             else:
                 unit_wavs += phones
 
@@ -317,8 +349,6 @@ class NNConcatenator():
                 join_phones = False
             else:
                 join_phones = True
-
-
 
             #print((unit_start, unit_end))
 
