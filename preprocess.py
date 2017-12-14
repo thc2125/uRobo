@@ -293,7 +293,6 @@ def generate_target_feats(utterances,
                           processed_dirpath,
                           phone_type,
                           maxphonelen):
-    print("HERE!")
     # A dictionary from utterance to features
     utt2target_feats=defaultdict(list)
     # A sorted list of utterance features (sorted 
@@ -677,7 +676,7 @@ def get_spk_independent_feats(utterances,
         flattened = np.array([feats
                               for utterance in spkr_utterances
                                   for feats in utterance])
-        print("TYPE: " + str(flattened.dtype))
+        #print("TYPE: " + str(flattened.dtype))
         mean = (np.mean(flattened, axis=0)).tolist()
         std = (np.std(flattened, axis=0)).tolist()
         spkr2mean[spkr] = mean
