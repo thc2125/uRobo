@@ -1,11 +1,13 @@
-
 from pathlib import Path
 
 # Define constants
 utterance_phone_file = 'utt_mono_di_tri_phones.npy'
 utterance_phone_feats_file = 'spkr_ind_mono_di_tri_phonestarget_feats_normalized.npy'
 
-def train_nn_model(train_corpus_dir, test_corpus_dir, model_path, epochs=20):
+def train_nn_model(train_corpus_dir, 
+                   test_corpus_dir,
+                   model_path=Path('./models/model.h5'), 
+                   epochs=20):
     '''A function that goes through the steps of training a neural target 
     feature prediction model.
     Keyword Arguments:
@@ -34,7 +36,7 @@ def train_nn_model(train_corpus_dir, test_corpus_dir, model_path, epochs=20):
 
     print(nn.evaluate(test_phones, test_features))
 
-    return nn
+    return model_path
 
 def prepare_data(train_corpus_dir, test_corpus_dir):
     '''A function to load data for ingestion into the neural network
@@ -63,5 +65,3 @@ def prepare_data(train_corpus_dir, test_corpus_dir):
 
     test_phones = np.pad(test_phones_unpad, [(0,0), (0,test_padding)], mode='constant')
     test_features = np.pad(test_features_unpad, [(0,0), (0,test_padding), (0,0)], mode='constant')
-
-
