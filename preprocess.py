@@ -21,11 +21,15 @@ phones_filename = 'phones.txt'
 utterances_filename = 'utterances'
 vocabulary_filename = 'vocab'
 alignments_filename = 'alignments'
+audiofiles_filename = 'wav.scp'
 lexicon_filename = str(Path('phones'/'align_lexicon.txt'))
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
 
+word2phones_filename = 'word2phones'
+
+utt2flac_filename = 'utt2flac'
 utt2phones_filename = 'utt2phone'
 utt2diphones_filename = 'utt2diphones'
 utt2triphones_filename = 'utt2triphones'
@@ -60,8 +64,7 @@ female = 'f'
 
 fs=16000
 
-def preprocess(raw_data_dirpath, 
-               kaldi_data_dirpath, 
+def preprocess(kaldi_data_dirpath, 
                processed_dirpath, 
                duration_limit=float('inf'), 
                gender=None, 
@@ -71,8 +74,7 @@ def preprocess(raw_data_dirpath,
     if not processed_dirpath.exists():
         processed_dirpath.mkdir(parents=True)
 
-    utterances = copy_base_data(raw_data_dirpath,
-                                kaldi_data_dirpath, 
+    utterances = copy_base_data(kaldi_data_dirpath, 
                                 processed_dirpath, 
                                 duration_limit=duration_limit,
                                 gender=gender,
@@ -82,13 +84,16 @@ def preprocess(raw_data_dirpath,
 
     process_data(processed_dirpath, sorted(list(utterances)), *data)
 
-def copy_base_data(raw_data_dirpath,
-                   kaldi_data_dirpath, 
+def copy_base_data(kaldi_data_dirpath, 
                    processed_dirpath, 
                    duration_limit=None,
                    gender=None,
                    mono_di_tri_phones=None,
                    speakers=None):
+
+    utt2flac = get_utt2flac((kaldi_data_dirpath / audiofiles_filename))
+    #JSONize utt2flac for posterity
+    utils.save_json(utt2flac, processed_dirpath / (utt2flac_filename + '.json'))
 
     spk2gender = get_spk2gender((kaldi_data_dirpath / (spk2gender_filename)))
     # JSONize spk2gender
@@ -108,8 +113,7 @@ def copy_base_data(raw_data_dirpath,
 
     word2phones = get_lexicon((kaldi_data_dirpath / (lexicon_filename)))
     # JSONIze lexicon
-    with (processed_dirpath / (lexicon_filename + '.json')).open('w') as lexicon_file:
-        json.dump(word2phones, lexicon_file, indent=4)
+    utils.save_json(word2phones, (processed_dirpath / (word2phones_filename + '.json')))
 
     utt2words_all = get_transcriptions(kaldi_data_dirpath / transcriptions_filename)
 
@@ -200,7 +204,7 @@ def copy_base_data(raw_data_dirpath,
 
     
     # Copy and convert audio from flac to wav
-    copy_and_convert_utterances(utterances, raw_data_dirpath, processed_dirpath)
+    copy_and_convert_utterances(utterances, utt2flac, processed_dirpath)
 
     return utterances
 
@@ -458,6 +462,15 @@ def get_idnt_value(filepath, lists=False, idnts_type=str, values_type=str):
                                                          for value in split_line[1:]]
     return idnt2value
 
+def get_utt2flac(filepath):
+    utt2flac = {}
+    with filepath.open() as open_file:
+        for line in open_file:
+            split_line = line.split()
+            utt2flac[split_line[0]]=split_line[-2]
+    return utt2flac
+
+
 def get_spk2gender(filepath):
     spk2gender = {}
     with filepath.open() as open_file:
@@ -571,10 +584,10 @@ def get_utterances(utterance_duration_filepath,
                           if utterance in utterances}
     return utterances, spks, utt2dur, curr_duration
 
-def copy_and_convert_utterances(utterances, kaldi_data_dirpath, processed_dirpath):
+def copy_and_convert_utterances(utterances, utt2flac, processed_dirpath):
     for utterance in utterances:
         utterance_dirnames = get_utterance_dirs(utterance)
-        flac_file = kaldi_data_dirpath / utterance_dirnames / (utterance + '.flac')
+        flac_file = utt2flac[utterance]
         flac = AudioSegment.from_file(str(flac_file), 'flac')
         new_dir = (processed_dirpath / utterance_dirnames)
         if not new_dir.exists():
