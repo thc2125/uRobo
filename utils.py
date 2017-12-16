@@ -10,12 +10,11 @@ import pysptk
 from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
 
-# Define constants
-phones_filename = 'phones'
+phones_filename = 'phones.txt'
 utterances_filename = 'utterances'
 vocabulary_filename = 'vocab'
 alignments_filename = 'alignments'
-lexicon_filename = 'align_lexicon'
+lexicon_filename = str(Path('phones'/'align_lexicon.txt'))
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
