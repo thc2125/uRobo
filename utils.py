@@ -14,11 +14,15 @@ phones_filename = 'phones.txt'
 utterances_filename = 'utterances'
 vocabulary_filename = 'vocab'
 alignments_filename = 'alignments'
+audiofiles_filename = 'wav.scp'
 lexicon_filename = str(Path('phones'/'align_lexicon.txt'))
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
 
+word2phones_filename = 'word2phones'
+
+utt2flac_filename = 'utt2flac'
 utt2phones_filename = 'utt2phone'
 utt2diphones_filename = 'utt2diphones'
 utt2triphones_filename = 'utt2triphones'
