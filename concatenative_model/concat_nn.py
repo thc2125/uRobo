@@ -10,10 +10,6 @@ from target_feat_predicter.nn import NN
 
 import numpy as np
 
-# TODO: Experiment with silences. Do we remove them in pre-processing? Does
-# adding additional silence context at the beginning and end coerce the model
-# to be more smooth?
-
 class NNConcatenator():
     '''Creates a concatenative speech synthesizer using a neural network for 
     target prediction'''
@@ -27,6 +23,7 @@ class NNConcatenator():
         Keyword Arguments
         data_dir -- directory to the audio data and appropriate data structures
         target_predicter_model_path -- the path to the neural network model for prediction
+        mono -- whether to use a monophone model rather than mono_di_tri_phone
         '''
         (self.idx2vocabulary, 
          self.vocabulary2idx, 
@@ -57,6 +54,8 @@ class NNConcatenator():
          self.utt2phones_target_feats,
          self.spkr2phones_target_feats_mean,
          self.spkr2phones_target_feats_std) = utils.load_target_feats(data_dir, mono=mono)
+
+        self.mono = mono
 
         '''
         (self.utt2concat_feats, 
@@ -260,7 +259,10 @@ class NNConcatenator():
 
     def _get_phone_sequence(self, text):
         phones = self._get_phones(text)
-        phone_sequence = self._get_mono_di_triphones_from_phones(phones)
+        if self.mono:
+            phone_sequence = [tuple([phone]) for phone in phones]
+        else:
+            phone_sequence = self._get_mono_di_triphones_from_phones(phones)
         return phone_sequence
 
     def _get_phones(self, text):
@@ -317,7 +319,7 @@ class NNConcatenator():
         candidates = []
         for phones in phone_sequence:
             #print(str(phones) + " " + str(phones in self.mono_di_tri_phone2units))
-            if len(self.mono_di_tri_phone2units[phones])>0:
+            if len(self.mono_di_tri_phone2units[phones])>0 and not self.mono:
                 #print("MISS")
                 candidates.append(self.mono_di_tri_phone2units[phones])
             elif len(phones)==1 and len(self.phone2units[phones[0]]) > 0:
