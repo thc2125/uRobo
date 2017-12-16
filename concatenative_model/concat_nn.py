@@ -41,7 +41,7 @@ class NNConcatenator():
          self.utt2mono_di_tri_phones,
          self.utt2mono_di_tri_alignments) = utils.load_data(data_dir)
 
-        self.word2phones = utils.load_json(data_dir / (utils.lexicon_filename + '.json'))
+        self.word2phones = utils.load_json(data_dir / (utils.word2phones_filename + '.json'))
 
         self.phone2units, self.mono_di_tri_phone2units = self._get_phone2units()
         self.target_predicter = NN(existing_model_path=target_predicter_model_path)
