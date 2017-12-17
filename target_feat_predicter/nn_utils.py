@@ -1,4 +1,8 @@
+import numpy as np
+
 from pathlib import Path
+
+from target_feat_predicter.nn import NN
 
 # Define constants
 utterance_phone_file = 'utt_mono_di_tri_phones.npy'
@@ -30,7 +34,7 @@ def train_nn_model(train_corpus_dir,
     num_phones = np.amax(train_phones) + 1
     num_features = train_features.shape[-1]
 
-    nn = NN(utt_len, num_phones, num_features, model_dir)
+    nn = NN(utt_len, num_phones, num_features, model_path)
 
     nn.train(train_phones, train_features, epochs)
 
@@ -65,3 +69,5 @@ def prepare_data(train_corpus_dir, test_corpus_dir):
 
     test_phones = np.pad(test_phones_unpad, [(0,0), (0,test_padding)], mode='constant')
     test_features = np.pad(test_features_unpad, [(0,0), (0,test_padding), (0,0)], mode='constant')
+
+    return utt_len, train_phones, train_features, test_phones, test_features
