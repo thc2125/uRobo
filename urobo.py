@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 
 import alignment
-import target_feat_predicter.nn_utils
+from target_feat_predicter import nn_utils
 import utils
 
 from preprocess import preprocess
@@ -18,20 +18,20 @@ if __name__ == "__main__":
                                                  + ' final synthesis.')
 
 
-    asr_group = parser.add_argument_group('asr_training_group')
+    asr_group = parser.add_argument_group('ASR Group')
     asr_group.add_argument('-k',
                            '--kaldi_dir',
                            type=Path,
                            help='The directory holding Kaldi')
 
-    asr_training_group = parser.add_argument_group('asr_training_group')
-
-    alignment_group = parser.add_argument_group('alignment_arguments')
-    alignment_group.add_argument('-r',
+    asr_training_group = parser.add_argument_group('ASR Training Group')
+    asr_training_group.add_argument('-r',
                                  '--raw_data_dir',
                                  type=Path,
                                  help='The directory for Kaldi to download raw'
                                       + ' LibriSpeech data into')
+
+    alignment_group = parser.add_argument_group('Alignment Arguments')
     alignment_group.add_argument('-D',
                                  '--data_to_align',
                                  help='The directory holding the specific data'
@@ -40,12 +40,17 @@ if __name__ == "__main__":
                                  '--asr_model',
                                  help='The alignment model from Kaldi to use')
 
-    preprocessing_group = parser.add_argument_group('preprocessing_arguments')
+    preprocessing_group = parser.add_argument_group('Preprocessing Arguments')
     preprocessing_group.add_argument('-K',
                                      '--kaldi_data_dir', 
                                      type=Path,
                                      help='The path to the kaldi data to be pre-processed')
-    preprocessing_group.add_argument('-p',
+    preprocessing_group.add_argument('-L',
+                                     '--kaldi_language_model_dir', 
+                                     type=Path,
+                                     help='The path to the kaldi language model')
+
+    preprocessing_group.add_argument('-P',
                                      '--processed_dir', 
                                      type=Path,
                                      help='The directory to hold pre-processed data')
@@ -64,11 +69,16 @@ if __name__ == "__main__":
                                      help='The speakers to pull from the raw corpus.')
     preprocessing_group.add_argument('-M',
                                      '--mono_di_tri_phones',
+                                     type=Path,
                                      help='A json file listing monophones,'
                                           + ' diphones, and triphones to use'
                                           + ' when preprocessing the data.')
+    preprocessing_group.add_argument('-S',
+                                     '--skip_audio',
+                                     action='store_true',
+                                     help='Skip copying audio files if they already exist.')
 
-    training_group = parser.add_argument_group('target_feature_training_arguments')
+    training_group = parser.add_argument_group('Target Feature Prediction Training Arguments')
     training_group.add_argument('-T',
                                 '--train_corpus',
                                 type=Path,
@@ -79,12 +89,18 @@ if __name__ == "__main__":
                                 type=Path,
                                 help='A directory to a pre-processed corpus'
                                      + ' against which to evaluate the trained model')
+    training_group.add_argument('-f',
+                                '--final_model',
+                                type=Path,
+                                help='The name/location of the final target'
+                                     + ' feature prediction model.')
     training_group.add_argument('-e', 
                                 '--epochs',
+                                type=int,
                                 help='The number of epochs over which to train'
                                      + ' the model')
 
-    synthesis_group = parser.add_argument_group('synthesis_arguments')
+    synthesis_group = parser.add_argument_group('Synthesizer Arguments')
     synthesis_group.add_argument('-n',
                         '--target_feature_model',
                         help='The model to use for predicting target features'
@@ -103,11 +119,12 @@ if __name__ == "__main__":
                         type=Path,
                         help='The output file in which to store the wav.')
 
-    synthesis_group.add_argument('--data_dir', 
-                        type=Path,
-                        help='The directory that (will) contain pre-processed'
-                             + ' data. This directory will store the results of'
-                             + ' pre-processing and be used in synthesis.')
+    synthesis_group.add_argument('-A',
+                                 '--audio_data_dir', 
+                                 type=Path,
+                                 help='The directory that (will) contain pre-processed'
+                                      + ' data. This directory will store the results of'
+                                      + ' pre-processing and be used in synthesis.')
 
 
 
@@ -134,9 +151,10 @@ if __name__ == "__main__":
             alignment.align(**align_args)
 
     #1. Pre-process data
-    if args.kaldi_data_dir and args.processed_dir:
+    if args.kaldi_data_dir and args.kaldi_language_model_dir and args.processed_dir:
         preprocess_args = {}
         preprocess_args['kaldi_data_dirpath']=args.kaldi_data_dir
+        preprocess_args['kaldi_lm_dirpath']=args.kaldi_language_model_dir
         preprocess_args['processed_dirpath'] = args.processed_dir
         # We can also set the target feature predicter training corpus if it hasn't
         # already been set
@@ -150,7 +168,9 @@ if __name__ == "__main__":
         if args.speakers:
             preprocess_args['speakers'] = args.speakers
         if args.mono_di_tri_phones:
-            preprocess_args['mono_di_tri_phones'] = args.mono_di_tri_phones
+            preprocess_args['mono_di_tri_phones'] = utils.load_json(args.mono_di_tri_phones)
+        if args.skip_audio:
+            preprocess_args['skip_audio'] = args.skip_audio
         preprocess(**preprocess_args)
 
     #2. Train the target feature prediction model
@@ -158,8 +178,8 @@ if __name__ == "__main__":
         train_args = {}
         train_args['train_corpus_dir'] = args.train_corpus
         train_args['test_corpus_dir'] = args.test_corpus
-        if args.target_feature_model:
-            train_args['model_path'] = args.target_feature_model
+        if args.final_model:
+            train_args['model_path'] = args.final_model
         if args.epochs:
             train_args['epochs'] = args.epochs
         trained_model_path = nn_utils.train_nn_model(**train_args)
@@ -173,10 +193,10 @@ if __name__ == "__main__":
             args.data_dir = args.train_corpus
 
     #3. Run the synthesizer i.e. the "Decode" stage
-    if args.text and args.target_feature_model and args.data_dir:
+    if args.text and args.target_feature_model and args.audio_data_dir:
         print("Building a concatenative synthesizer.")
         concat_args = {}
-        concat_args['data_dir'] = args.data_dir
+        concat_args['data_dir'] = args.audio_data_dir
         concat_args['target_predicter_model_path'] = (args.target_feature_model)
         if args.mono:
             concat_args['mono'] = (args.mono)
