@@ -57,6 +57,7 @@ if __name__ == "__main__":
 
     preprocessing_group.add_argument('-d',
                                      '--duration_limit',
+                                     type=utils.get_hours,
                                      help='The limit (in hours) of how'
                                           + ' much audio data to preprocess')
     preprocessing_group.add_argument('-g',
