@@ -17,12 +17,12 @@ from scipy.io import wavfile
 import utils
 
 # Define constants
-phones_filename = 'phones.txt'
+phones_filename = 'phones'
 utterances_filename = 'utterances'
-vocabulary_filename = 'vocab'
+vocabulary_filename = 'words'
 alignments_filename = 'alignments'
 audiofiles_filename = 'wav.scp'
-lexicon_filename = str(Path('phones'/'align_lexicon.txt'))
+lexicon_filename = str(Path('phones', 'align_lexicon.txt'))
 spk2gender_filename = 'spk2gender'
 transcriptions_filename = 'text'
 utterance_duration_filename = 'utt2dur'
@@ -65,32 +65,38 @@ female = 'f'
 fs=16000
 
 def preprocess(kaldi_data_dirpath, 
+               kaldi_lm_dirpath,
                processed_dirpath, 
                duration_limit=float('inf'), 
                gender=None, 
                mono_di_tri_phones=None,
-               speakers=None):
+               speakers=None,
+               skip_audio=False):
 
     if not processed_dirpath.exists():
         processed_dirpath.mkdir(parents=True)
 
     utterances = copy_base_data(kaldi_data_dirpath, 
+                                kaldi_lm_dirpath,
                                 processed_dirpath, 
                                 duration_limit=duration_limit,
                                 gender=gender,
                                 mono_di_tri_phones=mono_di_tri_phones,
-                                speakers=speakers)
+                                speakers=speakers,
+                                skip_audio=skip_audio)
     data = utils.load_data(processed_dirpath)
 
     process_data(processed_dirpath, sorted(list(utterances)), *data)
 
 def copy_base_data(kaldi_data_dirpath, 
+                   kaldi_lm_dirpath,
                    processed_dirpath, 
                    duration_limit=None,
                    gender=None,
                    mono_di_tri_phones=None,
-                   speakers=None):
-
+                   speakers=None,
+                   skip_audio=False):
+    print("Copying base Kaldi/audio data and converting to json.")
     utt2flac = get_utt2flac((kaldi_data_dirpath / audiofiles_filename))
     #JSONize utt2flac for posterity
     utils.save_json(utt2flac, processed_dirpath / (utt2flac_filename + '.json'))
@@ -101,17 +107,17 @@ def copy_base_data(kaldi_data_dirpath,
         json.dump(spk2gender, spk2gender_file, indent=4)
 
 
-    idx2phones, phones2idx = get_phones((kaldi_data_dirpath / (phones_filename)))
+    idx2phones, phones2idx = get_phones((kaldi_lm_dirpath / (phones_filename + '.txt')))
     # JSONize phone list
     with (processed_dirpath / (phones_filename + '.json')).open('w') as phones_file:
         json.dump(idx2phones, phones_file, indent=4)
 
-    idx2vocab, vocab2idx = get_vocab((kaldi_data_dirpath / (vocabulary_filename)))
+    idx2vocab, vocab2idx = get_vocab((kaldi_lm_dirpath / (vocabulary_filename + '.txt')))
     # JSONIze vocabulary
     with (processed_dirpath / (vocabulary_filename + '.json')).open('w') as vocabulary_file:
         json.dump(idx2vocab, vocabulary_file, indent=4)
 
-    word2phones = get_lexicon((kaldi_data_dirpath / (lexicon_filename)))
+    word2phones = get_lexicon((kaldi_lm_dirpath / (lexicon_filename)))
     # JSONIze lexicon
     utils.save_json(word2phones, (processed_dirpath / (word2phones_filename + '.json')))
 
@@ -188,7 +194,7 @@ def copy_base_data(kaldi_data_dirpath,
         json.dump(idx2mono_di_tri_phones, mono_di_tri_phones_file, indent=4)
 
     mono_di_tri_phones2idx = {idx2mono_di_tri_phones[idx] : idx 
-                             for idx in range(len(idx2mono_di_tri_phones))}
+                              for idx in range(len(idx2mono_di_tri_phones))}
 
     utt2mono_di_tri_phones, utt2mono_di_tri_alignments = (
             get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
@@ -204,7 +210,9 @@ def copy_base_data(kaldi_data_dirpath,
 
     
     # Copy and convert audio from flac to wav
-    copy_and_convert_utterances(utterances, utt2flac, processed_dirpath)
+    if not skip_audio:
+        print("Converting audio files from flac to wav.")
+        copy_and_convert_utterances(utterances, utt2flac, processed_dirpath)
 
     return utterances
 
@@ -227,6 +235,7 @@ def process_data(processed_dirpath,
                  utt2mono_di_tri_phones,
                  utt2mono_di_tri_alignments):
 
+    print("Processing data and collecting features.")
     # Get numpy arrays representing both the transcripts and the 
     # phonetic transcripts
     word_list = []
@@ -235,7 +244,7 @@ def process_data(processed_dirpath,
     maxuttlen = len(max(utt2words.values(), key=len))
     maxphonelen = len(max(utt2phones.values(), key=len))
     max_mono_di_tri_phonelen = len(max(utt2mono_di_tri_phones.values(), key=len))
-
+    print("Generating word/phonetic transcripts as numpy arrays.")
     for idx in range(len(utterances)):
         word_list.append(np.pad([vocabulary2idx[word]
                                  for word in utt2words[utterances[idx]]], 
@@ -272,6 +281,7 @@ def process_data(processed_dirpath,
     utterance_wavs = get_utterance_wavs(processed_dirpath, utterances)
 
     # Now generate target features for phones
+    print("Generating phone level features.")
     generate_target_feats(utterances, 
                           utterance_wavs,
                           utt2alignments,
@@ -280,6 +290,7 @@ def process_data(processed_dirpath,
                           maxphonelen)
 
     # Now generate target features for mono_di_tri_phones
+    print("Generating mono-di-tri-phone level features.")
     generate_target_feats(utterances, 
                           utterance_wavs,
                           utt2mono_di_tri_alignments,
@@ -496,7 +507,11 @@ def get_vocab(filepath):
     with filepath.open() as open_file:
         for line in open_file:
             split_line = line.split()
-            vocab2idx[split_line[0]]=len(idx2vocab)
+            vocab2idx[split_line[0]]=int(split_line[1])
+            if len(idx2vocab) != int(split_line[1]):
+                print(split_line[0])
+                print(split_line[1])
+                raise Exception("The vocab file is corrupt and missing words")
             idx2vocab.append(split_line[0])
     return idx2vocab, vocab2idx
 
@@ -724,6 +739,8 @@ def get_spk_independent_feats(utterances,
                                      + normalized_suffix + '.npy')),
             np_utterance_normalized_feats)
 
+'''
+Old interface
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dur_limit', type=lambda d: int(d)*60*60*fs)
@@ -747,3 +764,4 @@ if __name__ == '__main__':
     if args.speakers:
         main_args['speakers'] = set(args.speakers)
     preprocess(**main_args)
+'''
