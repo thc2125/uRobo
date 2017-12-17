@@ -52,6 +52,7 @@ spkr_independent_prefix = 'spkr_ind_'
 normalized_suffix = '_normalized'
 utt2concat_feats_filename = 'utt2concat_feats'
 
+fs=16000
 
 def load_data(processed_dirpath):
     with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
@@ -112,6 +113,9 @@ def save_json(data, json_filepath):
 def load_json(json_filepath):
     with json_filepath.open() as jsonfile:
         return json.load(jsonfile)
+
+def get_hours(dur):
+    return int(dur) * 60 * 60 * fs
 
 def load_target_feats(data_dir, mono=False):
     phone_type = mono_di_tri_phones_filename if not mono else phones_filename 
