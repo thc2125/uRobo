@@ -267,14 +267,14 @@ class NNConcatenator():
 
     def _get_phones(self, text):
         # Begin with silence, per Hunt and Black
-        phones = ['SIL']
+        #phones = ['SIL']
 
         for word in text.split():
             phones += self.word2phones[word.upper()]
         # End with a final silence. In larger corpora this takes a 
         # a very long time to synthesize as it searches through all of the 
         # silences i.e. a goodly portion of the data
-        phones += ['SIL']
+        #phones += ['SIL']
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
