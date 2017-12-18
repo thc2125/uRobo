@@ -1,0 +1,18 @@
+#!/usr/bin/python3
+
+from pathlib import Path
+
+from pydub import AudioSegment
+from pydub.playback import play
+
+from concatenative_model.concat_nn import NNConcatenator
+
+
+alice = NNConcatenator(Path('data/train-clean-spk39/'), 
+                       Path('models/train-clean-10-f/model.h5'))
+
+while True:
+    synth_text = input('What would you like me to say?')
+    _, wav = alice.synthesize(synth_text)
+    play(AudioSegment.from_wav(wav))
+    
