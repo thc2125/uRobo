@@ -239,7 +239,7 @@ class NNConcatenator():
         #print(phone_sequence)
         concatenation = self._concatenate(final_units)
         wavfile.write(str(output_path), self.fs, concatenation)
-        return concatenation
+        return concatenation, output_path
 
     def _get_phone2units(self):
         phone2units = defaultdict(list)
@@ -266,16 +266,15 @@ class NNConcatenator():
         return phone_sequence
 
     def _get_phones(self, text):
-        #TODO: Get a better model for t2p (another neural model?)
-        # Start with the silence phone
-        phones = []
+        # Begin with silence, per Hunt and Black
+        phones = ['SIL']
 
         for word in text.split():
             phones += self.word2phones[word.upper()]
-        # Optionally end with a final silence. In larger corpora this takes a 
+        # End with a final silence. In larger corpora this takes a 
         # a very long time to synthesize as it searches through all of the 
         # silences i.e. a goodly portion of the data
-        #phones += ['SIL']
+        phones += ['SIL']
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
