@@ -10,8 +10,9 @@ from pathlib import Path
 
 import numpy as np
 import pysptk
+import soundfile as sf
 
-from pydub import AudioSegment
+#from pydub import AudioSegment
 from scipy.io import wavfile
 
 import utils
@@ -136,6 +137,11 @@ def copy_base_data(kaldi_data_dirpath,
             word2phones,
             utt2words_all,
             utt2alignments_all)
+    # Copy and convert audio from flac to wav
+    if not skip_audio:
+        print("Converting audio files from flac to wav.")
+        copy_and_convert_utterances(utterances, utt2dur, utt2flac, processed_dirpath)
+
     # JSONIze utterances
     utils.save_json(sorted(list(utterances)), processed_dirpath / (utterances_filename + '.json'))
     utils.save_json(utt2dur, processed_dirpath / (utterance_duration_filename + '.json'))
@@ -209,10 +215,6 @@ def copy_base_data(kaldi_data_dirpath,
         json.dump(utt2mono_di_tri_alignments, utt2mono_di_tri_alignments_file, indent=4)
 
     
-    # Copy and convert audio from flac to wav
-    if not skip_audio:
-        print("Converting audio files from flac to wav.")
-        copy_and_convert_utterances(utterances, utt2flac, processed_dirpath)
 
     return utterances
 
@@ -598,17 +600,30 @@ def get_utterances(utterance_duration_filepath,
                           if utterance in utterances}
     return utterances, spks, utt2dur, curr_duration
 
-def copy_and_convert_utterances(utterances, utt2flac, processed_dirpath):
+def copy_and_convert_utterances(utterances, utt2dur, utt2flac, processed_dirpath):
+    to_remove = []
     for utterance in utterances:
         utterance_dirnames = get_utterance_dirs(utterance)
         flac_file = utt2flac[utterance]
-        flac = AudioSegment.from_file(str(flac_file), 'flac')
+        flac, sr =sf.read(str(flac_file))
+        if len(flac) != round(fs * utt2dur[utterance]):
+            # There's an issue where some flac files are not being read 
+            # properly (presumably an FFMPEG issue)
+            print("IMPORTED SAMPLES FROM " + utterance + " DO NOT MATCH!")
+            print(str(len(flac)) + '!=' +  str((fs * utt2dur[utterance])))
+            to_remove.append(utterance)
+            continue
         new_dir = (processed_dirpath / utterance_dirnames)
         if not new_dir.exists():
             new_dir.mkdir(parents=True)
 
-        flac.export(str(new_dir / (utterance + '.wav')),
-                   format='wav')
+        sf.write(str(new_dir / (utterance + '.wav')),
+                 flac,
+                 sr)
+    for utt_to_remove in to_remove:
+        print("Removing " + utt_to_remove + " from utterances")
+        utterances.remove(utt_to_remove)
+        utt2dur.pop(utt_to_remove)
 
 def get_utterance_dirs(utterance):
     # TODO: Fix utterance_dirs to be tuple
