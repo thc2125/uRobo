@@ -303,9 +303,10 @@ class NNConcatenator():
             monophone = tuple(phones[idx:idx+1])
             if (monophone in self.mono_di_tri_phones2idx
                     and (len(self.mono_di_tri_phone2units[monophone]) > 1 or
-                         len(self.phone2units[monophone[0]]) > 1)):
+                         len(self.phone2units[monophone[0]]) >= 1)):
                 mono_di_tri_phones.append(monophone)
                 idx += 1
+                continue
 
             else:
                 raise KeyError('Bad phone: ' + str(monophone))
