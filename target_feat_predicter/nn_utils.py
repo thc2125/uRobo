@@ -23,7 +23,7 @@ def train_nn_model(train_corpus_dir,
     '''
 
     if not model_path.parent.exists():
-        model_path.mkdir(parents=True)
+        model_path.parent.mkdir(parents=True)
 
     (utt_len,
      train_phones, 
