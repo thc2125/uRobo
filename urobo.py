@@ -190,7 +190,7 @@ if __name__ == "__main__":
             args.target_feature_model = trained_model_path
         # If the user hasn't specified a data path for the synthesizer, use the
         # training data path
-        if not args.data_dir:
+        if not args.audio_data_dir:
             args.data_dir = args.train_corpus
 
     #3. Run the synthesizer i.e. the "Decode" stage
