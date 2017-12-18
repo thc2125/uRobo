@@ -268,7 +268,7 @@ class NNConcatenator():
     def _get_phones(self, text):
         # Begin with silence, per Hunt and Black
         #phones = ['SIL']
-
+        phones = []
         for word in text.split():
             phones += self.word2phones[word.upper()]
         # End with a final silence. In larger corpora this takes a 
