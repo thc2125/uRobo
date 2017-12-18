@@ -317,10 +317,10 @@ def generate_target_feats(utterances,
     for utterance in utterances:
         utt_target_feats.append([])
         for alignment in utt2alignments[utterance]:
-            if phones_filename == phone_type:
-                target_feats = get_target_feats(utterance_wavs[utterance], tuple([alignment]))
+            if 'phones' == phone_type:
+                target_feats = get_target_feats(utterance,utterance_wavs[utterance], tuple([alignment]))
             else:
-                target_feats = get_target_feats(utterance_wavs[utterance], alignment)
+                target_feats = get_target_feats(utterance,utterance_wavs[utterance], alignment)
             utt_target_feats[-1].append(target_feats)
             utt2target_feats[utterance].append(target_feats)
 
@@ -371,7 +371,7 @@ def generate_target_feats(utterances,
                               target_feats_suffix,
                               maxphonelen)
 
-def get_target_feats(utterance_wav, alignments):
+def get_target_feats(utterance, utterance_wav, alignments):
     #phone_start = int(alignments[0] * fs)
     first_phone_start = alignments[0][0]
     first_phone_end = alignments[0][1]
@@ -390,20 +390,7 @@ def get_target_feats(utterance_wav, alignments):
     last_phone_samples = utterance_wav[last_phone_start:last_phone_end]
     all_phone_samples = utterance_wav[first_phone_start:last_phone_end]
     #phone_test = utterance_wav[phone_start]
-    '''
-    try:
-        phone_test = utterance_wav[phone_start]
-    except:
-        print("Outof bounds!!")
-        print(utterance)
-        print(phone_start)
-        print(phone_end)
-        print(alignments)
-        return (0, 0, 0, 0)
-    '''
-    #print(duration)
 
-    #print(phone_samples)
     #try:
     '''
     print(first_phone_start)
@@ -411,15 +398,27 @@ def get_target_feats(utterance_wav, alignments):
     print(last_phone_start)
     print(last_phone_end)
     '''
-    f_0_init = np.mean(pysptk.swipe(first_phone_samples.astype(np.float64), 
+    try:
+        f_0_init = np.mean(pysptk.swipe(first_phone_samples.astype(np.float64), 
                                     fs=fs, 
                                     hopsize=100, 
                                     otype='f0'))
-    #print(f_0_init)
-    f_0_end = np.mean(pysptk.swipe(last_phone_samples.astype(np.float64), 
+        #print(f_0_init)
+        f_0_end = np.mean(pysptk.swipe(last_phone_samples.astype(np.float64), 
                                    fs=fs, 
                                    hopsize=100, 
                                    otype='f0'))
+    except:
+        print("Outof bounds!!")
+        print(utterance)
+        print(first_phone_start)
+        print(first_phone_end)
+        print(last_phone_start)
+        print(last_phone_end)
+        print(alignments)
+        raise Exception("Out of bounds")
+        return (0, 0, 0, 0)
+
     #print(f_0_end)
     #except IndexError:
         # For "Index Error: Out of bounds on buffer access (axis 0)
