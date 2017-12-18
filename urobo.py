@@ -102,6 +102,13 @@ if __name__ == "__main__":
                                      + ' the model')
 
     synthesis_group = parser.add_argument_group('Synthesizer Arguments')
+    synthesis_group.add_argument('-A',
+                                 '--audio_data_dir', 
+                                 type=Path,
+                                 help='The directory that (will) contain pre-processed'
+                                      + ' data. This directory will store the results of'
+                                      + ' pre-processing and be used in synthesis.')
+
     synthesis_group.add_argument('-n',
                         '--target_feature_model',
                         help='The model to use for predicting target features'
@@ -120,12 +127,6 @@ if __name__ == "__main__":
                         type=Path,
                         help='The output file in which to store the wav.')
 
-    synthesis_group.add_argument('-A',
-                                 '--audio_data_dir', 
-                                 type=Path,
-                                 help='The directory that (will) contain pre-processed'
-                                      + ' data. This directory will store the results of'
-                                      + ' pre-processing and be used in synthesis.')
 
 
 
