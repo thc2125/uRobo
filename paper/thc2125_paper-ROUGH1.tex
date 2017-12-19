@@ -1,0 +1,102 @@
+\documentclass[10pt,a4paper,twocolumn]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage[noend]{algpseudocode}
+\usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+\author{Tyrus Cukavac}
+\title{uRobo: An End-to-End Concatenative Speech Synthesis System}
+\date{December 21, 2017}
+\begin{document}
+\maketitle
+\begin{abstract}
+This paper introduces uRobo, an open concatenative speech synthesis system built using the Kaldi framework for its Automated Speech Recognition layer and utilizing deep recurrent neural networks for target feature predictions in the unit selection stage. uRobo is an end-to-end system, meant to automate construction of a final model from raw data to synthesized speech. Initial target feature prediction models from uRobo were trained on ten hours of the LibriSpeech audio corpus comprising female voices, while units used for concatenation were tested with 10 hours of heterogenous speaker data, as well as roughly 25 minutes of data from a single speaker. Moreover, uRobo is capable of unit selection at the triphone level (with diphone and monophone backoff) as well as the monophone level. We show that uRobo is able to produce intelligible voices with both models, but the triphone-diphone-monophone backoff architecture produces more intelligible and slightly smoother results.
+\end{abstract}
+\section{Introduction}
+The generation of artificial, yet natural-sounding speech is one of the oldest problems in computer science. Although production of a general, intelligible synthetic voice is a worthy goal, there also exists a need to create voices which sound like a target speaker. This need is particularly acute in the domains of healthcare and media production. Many people who must have their voiceboxes removed for medical reasons such as cancer, often wish for the ability to re-create their orginal voice. Moreover, for film production companies, imperfect audio captured during filming force them to engage in time-intense and expensive audio recording sessions with their talent in order to meet production deadlines.\par
+\subsection{Existing Architectures}
+State of the art text-to-speech architectures tend to fall into one of three categories: a parametric approach, an end-to-end neural network approach, and a concatenative approach.\par
+The parametric architecture essentially works to make predictions on durations of phonemes as well as the acoustic features necessary for synthesis. These acoustic features are then provided to a vocoder which synthesizes the sounds into waveforms.TKTKThe parametric model described by Zen, et. al. utilizes an LSTM (Long Short Term Memory) RNN (Recurrent Neural Network) to make predictions of the above features to be provided to the vocoder.\cite{DBLP:journals/corr/ZenAEHS16} Although parametric models are resilient in the sense that they are capable of producing features for any given frame (in comparison to other models that may be limited by the unit data collected during trainign) the results are often apparently from a machine and lack a natural sound.\par
+Parametric architectures need not be the only synthesis approach using neural networks. The most recent state of the art architectures for text-to-speech synthesis make use of neural networks to generate pure waveforms from input text. DeepMind's Wavenet uses dilated causal convolutional neural networks\cite{DBLP:journals/corr/ArikCCDGKLMRSS17}, and Baidu's Deep Voice passes inputs through layers of recurrent neural networks. Both of these approaches result in synthetic voices that human listeners seem to find more natural than previous approaches\cite{DBLP:journals/corr/OordDZSVGKSK16}, but require a great deal of computational power and time to train. Moreover, this area of study is still in relative infancy as opposed to other approaches, such as the concatenative, which have had more time to mature.\par
+The concatenative approach, described by Hunt and Black, at its most basic level selects pre-existing units of audio from a database of utterances, stitching these together and performing basic post-processing to create a final audio output\cite{Hunt:1996:USC:1256383.1256532}. Obviously to provide adequate coverage for a given language and a given speaker, a great deal of audio data must be collected. This unfortunately leads to additional problems, such as slow database lookups for large candidate units for a given frame/phone. Google's advances in their own concatenative model have helped them address several of these issues by optimizing search for ideal unit candidates and extending the size of the units used to build utterances.\cite{45564}\par
+Despite the above problems, the concatenative approach has yielded more natural-sounding results in many cases than the parametric approach, due to its use of existing waveforms rather than the synthesis of new waveforms by a vocoder, which often results in artifacts. For the purposes of imitating a given speaker, the concatenative approach may seemingly yield the best of all worlds: taking less time and resources than an end-to-end neural network while also being able to match actual phonetic level sounds of a given speaker. As a result, the uRobo system follows this architecture to synthesize speech.  
+\section{The Concatenative Approach}
+The concatenative approach to synthesis is at its heart a dynamic programming problem. Given a database of units which are in essence waveforms with acoustic features, the algorithm attempts to find a path/sequence of units corresponding to a given sequence of words/phonemes resulting in the minimum total cost value over all units. \par
+$\overline{u}_1^n=min_{u_1,...,u_n}C(t_1^n,u_1^n)$\\
+wherein $\overline{u}_1^n$ is the final sequence of $n$ units required for a new utterance that are selected by the algorithm. $u_x, x\in n$ is a given unit at index $x$ and $t_x, x\in n$ is a target "unit" or rather a representation of certain features that a unit at index $x$ should have. $C$ is a cost function over a sequence of units.\\	
+The cost value per unit can be defined as a function of two separate costs. The target cost $C^t$, which is essentially a weighted sum of absolute differences between a target feature vector and a candidate unit's feature vector, as well as a concatenation cost $C^c$, which is the weighted sum of absolute differences between a candidate unit and a previous candidate.\par
+$C^t(t_i,u_i)\sum_{j=1}^pw_j^t|t_{i_j}-u_{i_j}|$\\
+$C^c(u_{i-1},u_i)\sum_{j=1}^qw_j^c|u_{i-1_j}-u_{i_j}|$\\
+Where $p$ represents the number of features in the target feature vector and $q$ represents the number of features in the concatenation feature vectors of the two units. The cost for a given unit, then, is the sum of $C^c and C^t$. We can thus expand the cost of a sequence to be\\
+$C(t_1^n,u_1^n)=\sum_{i=1}^nC^t(t_i,u_i)+ \sum_{i=1}^nC^c(u_{i-1},u_i)$
+\cite{Hunt:1996:USC:1256383.1256532}\par
+Obviously calculating this for every possible path would be an intractable problem, therefore the Viterbi algorithm is used to find the minimum cost sequence. The problem can be visualized as a sparse matrix wherein each column corresponds to the set of candidate costs for a given unit. The first column of the matrix is initialized as the concatenation cost between the first unit and silence. In the remaining iterations, unit by unit, each candidate is compared against the 1)target feature vector and 2) all previous units. The minimum concatenation cost is selected as the final concatenation cost for that unit, and the previous unit is stored in a backtracking matrix.
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Function{VITERBI-UNIT-COSTS}{$t_1^n,u_1^n$}
+\State{matrix $cost$}
+\State{matrix $back$}
+\For{each $u_{1_x}$ in $u_1$}
+    \State{$cost_{1,x}=C^c($SIL$,u_1)$}
+\EndFor
+\For{each $u_{i}$ in $u_2^n$}
+    \For{each $u_{i_x}$ in $u_i$}
+        \State{$C^t(t_i,u_{i_x})$}
+        \State{$C^c(u_{i_x})=\min C^c(u_{i-1},u_i{_x})$}
+        \State{$b=$argmin $C^c(u_{i-1},u_i{_x})$}
+        \State{$cost_{i,x}=C^t(t_i,u_{i_x})+C^c(u_{i_x}+cost_{i-1,b}$}
+        \State{$back_{i,x}=b$}
+     \EndFor
+\EndFor
+\Return{$cost,back$}
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+Retrieving the final sequence of units is simple using a backtracing algorithm.
+\begin{algorithm}
+\begin{algorithmic}[1]
+\Function{BACKTRACE-UNITS}{$cost,back$}
+\State{$b=$argmin$cost_{n}$}
+\State{$\overline{u}_n=b$}
+\For{each $i\in (n-1) \to 1)$}
+    \State{$b=back_{i+1,b}$}
+    \State{$\overline{u}_i=b$}
+\EndFor
+\Return{$\overline{u}_1^n$}
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+This final sequence of units i.e. selected waveforms, are then stitched together to create the final waveform representing an utterance.
+\section{uRobo Architecture}
+The uRobo system is a concatenative system based on both monophones and/or triphones with diphone and monophone backoff, to be discussed in another section. To that end, the system is composed of four distinct layers whose ultimate output combines to produce a speech synthesis model. First, the system needs to be able to decompose audio in a manner that features can be extracted for use in unit selection, and therefore requires a speech recognition system in order to produce data usable by the concatenative architecture. Next, a system is required to pre-process the raw output of the ASR in order to extract additional features and put them into a form that the target feature predicter can learn from. Next, a model for predicting target features must be trained on the pre-processed data. Finally, a unit selection system using the viterbi algorithm and either the previously extracted data or some other pre-processed data can be used to acquire units and ultimately synthesize an audio file from text.
+\subsection{Speech Recognition System}
+For automated speech recognition, the Kaldi ASR framework was utilized. Kaldi has pre-built scripts that allow a user to train an ASR system on the LibriSpeech corpus\cite{unknown}, an open corpus that is the foundation of the data used by the concatenation synthesis system. Kaldi's training script for ASR downloads the LibriSpeech corpus as well as the language model files generated from an analysis of that corpus, i.e. vocabulary, phones, and a lexicon translating words to various phone sequences.\par
+Kaldi then goes through all of the data, a total of 1000 hours, and builds triphone based alignment models utilizing HMM-GMMs and decision trees, extracting features such as MFCCs as well as performing multiple alignments on the data to improve each successive model.\par
+with a final alignment model completed, the uRobo system can call kaldi scripts to perform forced alignment on the librispeech data. For the purposes of development and the experiments to follow, the clean training data of Librispeech, comprising 100 hours of audio data, as well as the clean test data, were aligned and output into a text format that specified a given utterance's timecode to specific phones. \par
+Of particular use in the uRobo system was Kaldi's generation of an alignment lexicon, which provided additional contextual information for all of the possible/available phones, such as phone placement within the word. This became especially important for reducing the number of candidate units to select from during unit selection.
+\subsection{Preprocessing}
+Given properly aligned data from Kaldi's forced alignment, it now needed to be converted into a format usable to uRobo. The system itself required a target feature prediction system (to be discussed in the next section). To train such a system, the output from Kaldi needs to be re-analyzed and converted to more digestible formats. The preprocessor is able to take librispeech audio data and convert into wav format (for standardized feature extraction) as well as convert other Kaldi provided metrics and annotations for use in the training/synthesis stage. The preprocessor also allows for segmentation of the data set by gender, speaker, and total duration.\par
+
+
+\subsection{Unit Selection Using a Deep Recurrent Neural Network}
+Hunt and Black present the general concept behind the Concatenative approach, but there is still the question of how to generate target features for computation of the target cost $C^t$. Much work h
+\section{Experiment Setup}
+\subsection{The Corpus}
+Much of the difficulty in this area lies in a lack of substantial and usable training data. Many of the corpora used by large corporations incorporate many hours of audio data recorded by professional voice actors, and are closed to the public. The open Librispeech corpus\cite{unknown} aims to fill part of that gap by formatting and segmenting data from the LibriVox project, resulting in thousands of hours of audio data. Unfortunately, each speaker tends to only contribute around 30 minutes of audio to the overall project, meaning any attempts at making use of this data for a text-to-speech model will be either need to compose units from varied voices or from a very limited data set of audio.\par
+\subsection{Utterance Synthesis and Metrics}
+Both of these approaches were used in the experiments. A set of ten utterances ranging from monosyllabic words to long sentences were generated by synthesizers using two different data sets. One utilized a single female speaker from the LibriSpeech training corpus, comprising roughly 25 minutes of audio spoken. The other used ten hours of audio spoken by female readers from the Librispeech training corpus. To test the variation between triphone with backoff and pure monophone unit selection, the aforementioned synthesizers came in two flavors: one selected from a data set of triphones with diphone and monophone backoff, while the other selected purely from monophones. This resulted in 4 different synthetic voices. The utterances were selected from the test set of the Librispeech corpus, so that a control group of audio spoken by humans could be used as a baseline comparison.\par
+The generated and control audio was judged by a random sampling of three Mechanical Turk workers per utterance. Each judged an individual audio file in isolation from any of the others based on three metrics: the intelligibility of the utterance, how human it sounded, and the smoothness of the utterance.
+\section{Results}
+\section{Conclusions and Avenues for Future Work}
+There are a number of areas for improvement in the current architecture. In particular, with regards to being able to "re-synthesize" the original audio given a string of text. The phonetic pronunciation of a given sentence is provided without respect to the placement of silences. The original LibriSpeech data set is rife with silences between some words but not others, and also at the beginning and end of each utterance. uRobo currently uses the alignment lexicon to translate a word into its phonetic pronunciation, without regard to any intermediate silences that might occur. For a future version of uRobo, it may be worthwhile to experiment with a sequence to sequence model or HMM that is capable of learning when and where silences should be placed. This might allow for better unit selection, particularly with low resource speakers that may have many triphone and diphone sequences that are dependent on the silences between words.
+Test
+\newpage
+\bibliographystyle{plain} 
+
+\bibliography{thc2125_paper-ROUGH1}
+
+\end{document}

@@ -1,0 +1,44 @@
+\begin{thebibliography}{1}
+
+\bibitem{DBLP:journals/corr/ArikCCDGKLMRSS17}
+Sercan~{\"{O}}mer Arik, Mike Chrzanowski, Adam Coates, Greg Diamos, Andrew
+  Gibiansky, Yongguo Kang, Xian Li, John Miller, Jonathan Raiman, Shubho
+  Sengupta, and Mohammad Shoeybi.
+\newblock Deep voice: Real-time neural text-to-speech.
+\newblock {\em CoRR}, abs/1702.07825, 2017.
+
+\bibitem{45564}
+Xavi Gonzalvo, Siamak Tazari, Chun an~Chan, Markus Becker, Alexander Gutkin,
+  and Hanna Silen, editors.
+\newblock {\em Recent Advances in Google Real-time HMM-driven Unit Selection
+  Synthesizer}, Sep 8-12, San Francisco, USA, 2016.
+
+\bibitem{Hunt:1996:USC:1256383.1256532}
+A.~J. Hunt and A.~W. Black.
+\newblock Unit selection in a concatenative speech synthesis system using a
+  large speech database.
+\newblock In {\em Proceedings of the Acoustics, Speech, and Signal Processing,
+  1996. On Conference Proceedings., 1996 IEEE International Conference - Volume
+  01}, ICASSP '96, pages 373--376, Washington, DC, USA, 1996. IEEE Computer
+  Society.
+
+\bibitem{unknown}
+Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur.
+\newblock Librispeech: An asr corpus based on public domain audio books.
+\newblock pages 5206--5210, 04 2015.
+
+\bibitem{DBLP:journals/corr/OordDZSVGKSK16}
+A{\"{a}}ron van~den Oord, Sander Dieleman, Heiga Zen, Karen Simonyan, Oriol
+  Vinyals, Alex Graves, Nal Kalchbrenner, Andrew~W. Senior, and Koray
+  Kavukcuoglu.
+\newblock Wavenet: {A} generative model for raw audio.
+\newblock {\em CoRR}, abs/1609.03499, 2016.
+
+\bibitem{DBLP:journals/corr/ZenAEHS16}
+Heiga Zen, Yannis Agiomyrgiannakis, Niels Egberts, Fergus Henderson, and
+  Przemyslaw Szczepaniak.
+\newblock Fast, compact, and high quality {LSTM-RNN} based statistical
+  parametric speech synthesizers for mobile devices.
+\newblock {\em CoRR}, abs/1606.06061, 2016.
+
+\end{thebibliography}
