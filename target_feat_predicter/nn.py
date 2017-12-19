@@ -38,7 +38,7 @@ class NN():
         context_embeddings2 = Bidirectional(LSTM(57, return_sequences=True))(context_embeddings1)
         context_embeddings3 = Bidirectional(LSTM(46, return_sequences=True))(context_embeddings2)
 
-        features = TimeDistributed(Dense(num_features, activation='tanh'))(context_embeddings3)
+        features = TimeDistributed(Dense(num_features, activation='linear'))(context_embeddings3)
 
         model = Model(inputs=phone_input, outputs=features)
         optimizer = RMSprop()
