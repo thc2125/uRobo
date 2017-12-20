@@ -74,10 +74,6 @@ if __name__ == "__main__":
                                      help='A json file listing monophones,'
                                           + ' diphones, and triphones to use'
                                           + ' when preprocessing the data.')
-    preprocessing_group.add_argument('-S',
-                                     '--skip_audio',
-                                     action='store_true',
-                                     help='Skip copying audio files if they already exist.')
 
     training_group = parser.add_argument_group('Target Feature Prediction Training Arguments')
     training_group.add_argument('-T',
@@ -171,8 +167,6 @@ if __name__ == "__main__":
             preprocess_args['speakers'] = args.speakers
         if args.mono_di_tri_phones:
             preprocess_args['mono_di_tri_phones'] = utils.load_json(args.mono_di_tri_phones)
-        if args.skip_audio:
-            preprocess_args['skip_audio'] = args.skip_audio
         preprocess(**preprocess_args)
 
     #2. Train the target feature prediction model
