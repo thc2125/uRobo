@@ -181,7 +181,7 @@ USAGE OF 'urobo.py':
         Or to preprocess 5 hours of utterances spoken by males from the 
         train-clean-100 data set:
              python3 urobo.py \
-                    -K ../kaldi/egs/librispeech/s5/data/train-clean-100 \
+                    -K ../kaldi/egs/librispeech/s5/data/train_clean_100 \
                     -L ../kaldi/egs/librispeech/s5/data/lang \
                     -P data/train-clean-5-m \
                     -d 5 \
