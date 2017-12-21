@@ -123,7 +123,7 @@ FOLDER STRUCTURE:
     Trained target feature prediction models can be found in the 'models'
     directory. 
 
-    Kaldi data and alignment models live in the 'kaldi' directory (NOT the 
+    Kaldi data and alignment models live in the '../kaldi' directory (NOT the 
     'uRobo' directory). All uRobo specific scripts must be run from 'uRobo'!
 
 
