@@ -11,6 +11,9 @@ PREREQUISITES:
    uRobo makes extensive use of the Python standard library and requires
    Python >= 3.5.2 to function
 
+   Moreover pip3 is required to install the additional Python dependencies
+   (see more info below)
+
    KALDI:
    uRobo needs the most recent version of Kaldi to handle the ASR training and 
    alignment stages. The output of ASR training is used for alignment which is
