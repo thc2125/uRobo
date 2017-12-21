@@ -1,7 +1,7 @@
 uRobo: The Voice That Sounds Like You
 
 IMPORTANT NOTES:
-1. uRobo should be run from the uRobo root directory
+1. uRobo scripts should be run from the uRobo root directory
 2. The python3 package requirements may themselves have binary or os-level
    package requirements. Running 'pip3 install -r requirements.txt --user' should
    indicate which if any binary packages are missing.
