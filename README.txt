@@ -155,7 +155,7 @@ USAGE OF 'urobo.py':
         python3 urobo.py -k <KALDI_ROOT_DIR> -D <DATA_TO_ALIGN> -a <ASR_MODEL>
 
         e.g.
-            python3 urobo.py -k ../kaldi -D train-clean-100 -a tri6b
+            python3 urobo.py -k ../kaldi -D dev_clean -a tri6b
           
     NOTE: The 'DATA_TO_ALIGN' and 'ASR_MODEL' directories are relative to
           'kaldi/egs/librispeech/s5/'. They should not be qualified with their 
@@ -172,7 +172,7 @@ USAGE OF 'urobo.py':
         n-phone list from 10 hours of female speakers:
       
             python3 urobo.py \
-                    -K ../kaldi/egs/librispeech/s5/data/train-clean-100 \
+                    -K ../kaldi/egs/librispeech/s5/data/train_clean_100 \
                     -L ../kaldi/egs/librispeech/s5/data/lang \
                     -P data/train-clean-spk40 \
                     -s 40 \
