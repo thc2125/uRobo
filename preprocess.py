@@ -73,6 +73,18 @@ def preprocess(kaldi_data_dirpath,
                mono_di_tri_phones=None,
                speakers=None,
                skip_audio=False):
+    '''Preprocess from Kaldi audio data
+    Keyword Arguments:
+    kaldi_data_dirpath -- Path to Kaldi extracted data
+    kaldi_lm_dirpath -- Path to Kaldi Language Model ('data/lang')
+    processed_dirpath -- Output Path; where to place pre-processed files
+    duration_limit -- how much audio to get (in samples)
+    gender -- the gender of speakers to extract
+    mono_di_tri_phones -- a list of mono/di/triphones
+    speakers -- a list of speakers to extract
+    skip_audio -- whether to skip copying audio (deprecated, could result in
+                  unstable behavior) 
+    '''
 
     if not processed_dirpath.exists():
         processed_dirpath.mkdir(parents=True)
@@ -97,6 +109,9 @@ def copy_base_data(kaldi_data_dirpath,
                    mono_di_tri_phones=None,
                    speakers=None,
                    skip_audio=False):
+    ''' Copies the base Kaldi processed data, converting to JSON format and 
+    filtering based on gender, speaker, and total duration
+    '''
     print("Copying base Kaldi/audio data and converting to json.")
     utt2flac = get_utt2flac((kaldi_data_dirpath / audiofiles_filename))
     #JSONize utt2flac for posterity
@@ -128,6 +143,7 @@ def copy_base_data(kaldi_data_dirpath,
             kaldi_data_dirpath / (alignments_filename), 
             idx2phones)
 
+    # Get the final list of utterances we will be copying
     utterances, spks, utt2dur, curr_duration = get_utterances(
             (kaldi_data_dirpath / (utterance_duration_filename)),
             gender,
@@ -190,6 +206,7 @@ def copy_base_data(kaldi_data_dirpath,
                     processed_dirpath / (utt2triphone_alignments_filename + '.json'))
 
 
+    # Use or create indexes of mono_di_tri_phones
     if mono_di_tri_phones:
         idx2mono_di_tri_phones=[tuple(phones) for phones in mono_di_tri_phones]
     else:
@@ -202,6 +219,7 @@ def copy_base_data(kaldi_data_dirpath,
     mono_di_tri_phones2idx = {idx2mono_di_tri_phones[idx] : idx 
                               for idx in range(len(idx2mono_di_tri_phones))}
 
+    # Split the utterances using the list of n-phones
     utt2mono_di_tri_phones, utt2mono_di_tri_alignments = (
             get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
                                              utt2phones, 
@@ -236,6 +254,9 @@ def process_data(processed_dirpath,
                  utt2triphone_alignments,
                  utt2mono_di_tri_phones,
                  utt2mono_di_tri_alignments):
+    '''Process the data, extracting speaker independent target features for 
+    mono-di-tri-phones and monophones
+    '''
 
     print("Processing data and collecting features.")
     # Get numpy arrays representing both the transcripts and the 
@@ -312,6 +333,7 @@ def generate_target_feats(utterances,
                           processed_dirpath,
                           phone_type,
                           maxphonelen):
+    '''Generates target features for the provided utterances'''
     # A dictionary from utterance to features
     utt2target_feats=defaultdict(list)
     # A sorted list of utterance features (sorted 
@@ -366,6 +388,8 @@ def generate_target_feats(utterances,
             np_target_feats_normalized,
             allow_pickle=False)
 
+    # Given features standardixed by the whole mean and std, now let's make 
+    # speaker independent standardized features.
     get_spk_independent_feats(utterances,
                               utt2target_feats,
                               processed_dirpath,
@@ -374,6 +398,9 @@ def generate_target_feats(utterances,
                               maxphonelen)
 
 def get_target_feats(utterance, utterance_wav, alignments):
+    '''Generates target features for an utterance (in this case duration, 
+    initial phone fundamental frequency, final phone fundamental frequency, and
+    energy'''
     #phone_start = int(alignments[0] * fs)
     first_phone_start = alignments[0][0]
     first_phone_end = alignments[0][1]
@@ -438,6 +465,8 @@ def get_target_feats(utterance, utterance_wav, alignments):
     return duration, f_0_init, f_0_end, energy
 
 def get_utterance_wavs(processed_dirpath, utterances):
+    ''' Pull the actual samples of all utterances from wav files and store them
+    in a dictionary'''
     utterance_wavs = {}
     for utterance in utterances:
         utterance_dirs = get_utterance_dirs(utterance)
@@ -450,6 +479,8 @@ def get_utterance_wavs(processed_dirpath, utterances):
     return utterance_wavs
 
 def copy_id_values(orig_filepath, copied_filepath, idnts):
+    '''Read in a Kaldi text file and create a dictionary from an id to 
+    its values'''
     with orig_filepath.open() as orig_file:
       with copied_filepath.open('w') as copied_file:
         idnts2values = {}
@@ -462,6 +493,9 @@ def copy_id_values(orig_filepath, copied_filepath, idnts):
     return idnts2values
 
 def get_idnt_value(filepath, lists=False, idnts_type=str, values_type=str):
+    '''Read in a Kaldi text file and create a dictionary from an id to 
+    its value (note there should be only one'''
+
     idnt2value = {}
     with filepath.open() as open_file:
         for line in open_file:
@@ -475,6 +509,7 @@ def get_idnt_value(filepath, lists=False, idnts_type=str, values_type=str):
     return idnt2value
 
 def get_utt2flac(filepath):
+    '''Read in a Kaldi wav.scp and get the original flac path'''
     utt2flac = {}
     with filepath.open() as open_file:
         for line in open_file:
@@ -484,6 +519,7 @@ def get_utt2flac(filepath):
 
 
 def get_spk2gender(filepath):
+    '''Read in a Kaldi spk2gender file and create an equivalent dictionary'''
     spk2gender = {}
     with filepath.open() as open_file:
         for line in open_file:
@@ -493,6 +529,8 @@ def get_spk2gender(filepath):
 
 
 def get_phones(filepath):
+    '''Read in a kaldi phones.txt file and create a list of phones as well as
+    a dictionary from a phone to its given index'''
     idx2phones = []
     phones2idx = {}
     with filepath.open() as open_file:
@@ -503,6 +541,8 @@ def get_phones(filepath):
     return idx2phones, phones2idx
 
 def get_vocab(filepath):
+    '''Read in a Kaldi vocabulary file and create a list of vocabulary words 
+    and a dictionary from a word to its index'''
     idx2vocab = []
     vocab2idx = {}
     with filepath.open() as open_file:
@@ -517,6 +557,8 @@ def get_vocab(filepath):
     return idx2vocab, vocab2idx
 
 def get_lexicon(filepath):
+    '''Read in a kaldi lexicon file and create a dictionary from a word to the 
+    phones that compose it'''
     word2phones = {}
     with filepath.open() as open_file:
         for line in open_file:
@@ -525,6 +567,8 @@ def get_lexicon(filepath):
     return word2phones
 
 def get_transcriptions(filepath):
+    '''Read in a kaldi transcript and create a dictionary from an utterance to 
+    the words that compose it.'''
     utt2words = {}
     with filepath.open() as open_file:
         for line in open_file:
@@ -533,6 +577,9 @@ def get_transcriptions(filepath):
     return utt2words
 
 def get_alignments(alignments_filepath, idx2phones):
+    '''Read in a Kaldi CTM alignments file (generated by ali-to-phones) and
+    turn it into two dictionares: from utterance to list of phones and from 
+    utterance to list of alignments'''
     utt2phones = defaultdict(list) 
     utt2alignments = defaultdict(list)
     with alignments_filepath.open() as alignments_file:
@@ -554,6 +601,8 @@ def get_utterances(utterance_duration_filepath,
                    word2phones,
                    utt2words,
                    utt2alignments):
+    '''Filter out utterances by gender, duration, and speaker to get a final 
+    list of utterances to be used in the preprocessed data'''
     utt2dur = {}
     # Get utterances and durations, filtering by gender and speaker
     with utterance_duration_filepath.open() as utterance_duration_file:
@@ -601,6 +650,8 @@ def get_utterances(utterance_duration_filepath,
     return utterances, spks, utt2dur, curr_duration
 
 def copy_and_convert_utterances(utterances, utt2dur, utt2flac, processed_dirpath):
+    '''Given a list of utterances and their original flac filepaths, convert 
+    them to wav format and copy to the new preprocessed directory.'''
     to_remove = []
     for utterance in utterances:
         utterance_dirnames = get_utterance_dirs(utterance)
@@ -626,11 +677,14 @@ def copy_and_convert_utterances(utterances, utt2dur, utt2flac, processed_dirpath
         utt2dur.pop(utt_to_remove)
 
 def get_utterance_dirs(utterance):
+    '''Given an utterance name, determine its parent and grandparent directory'''
     # TODO: Fix utterance_dirs to be tuple
     utterance_dirs = os.path.join(*(utterance.split('-')[0:-1]))
     return utterance_dirs
 
 def get_nphones(utt2phones, utt2alignments, n):
+    '''Given a dictionary of utterances to phones, convert them to nphones
+    (mono/di/triphones)'''
     nphone_counts = Counter()
     utt2nphones = defaultdict(list)
     utt2nphone_alignments = defaultdict(list)
@@ -648,6 +702,7 @@ def get_nphones(utt2phones, utt2alignments, n):
 def get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
                                      utt2phones, 
                                      utt2alignments):
+
     utt2mono_di_tri_phones = {}
     utt2mono_di_tri_alignments = {}
     for utterance in utt2phones.keys():
@@ -664,6 +719,7 @@ def get_utterance2mono_di_tri_phones(mono_di_tri_phones2idx,
 def get_mono_di_tri_phones_alignments_from_utterance(nphone2idx, 
                                                      utterance_phones,
                                                      utterance_alignments):
+    '''Given an utterance, convert it to a list list of mono/di/triphones'''
     idx = 0
     utterance_mono_di_tri_phones = []
     utterance_mono_di_tri_alignments = []
@@ -703,6 +759,8 @@ def get_spk_independent_feats(utterances,
                               phone_type,
                               feats_filename,
                               maxphonelen):
+    '''Standardize features according to speaker mean and std such that
+    feat'=(feat-spk2mean[spk])/spk2std[spk]'''
     # First get target features for each speaker's utterances
     spkr2utt_feats = {}
     for utterance in utt2feats:
@@ -754,7 +812,7 @@ def get_spk_independent_feats(utterances,
             np_utterance_normalized_feats)
 
 '''
-Old interface
+Old command line interface
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dur_limit', type=lambda d: int(d)*60*60*fs)
