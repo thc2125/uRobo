@@ -1,3 +1,8 @@
+# Python script allowing for preprocessing of data for uRobo
+# Written by Tyrus Cukavac
+# thc2125
+
+
 import argparse
 import json
 import math
@@ -514,7 +519,9 @@ def get_utt2flac(filepath):
     with filepath.open() as open_file:
         for line in open_file:
             split_line = line.split()
-            utt2flac[split_line[0]]=split_line[-2]
+            # Under the assumption that this is a wav.scp file in a Kaldi
+            # data directory under 'data'
+            utt2flac[split_line[0]]=str(Path(filepath.parent.parent.parent.resolve(), split_line[-2]))
     return utt2flac
 
 
