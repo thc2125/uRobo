@@ -3,7 +3,7 @@ uRobo: The Voice That Sounds Like You
 IMPORTANT NOTES:
 1. uRobo should be run from the uRobo root directory
 2. The python3 package requirements may themselves have binary or os-level
-   package requirements. Running 'pip3 install -r requirements.txt' should
+   package requirements. Running 'pip3 install -r requirements.txt --user' should
    indicate which if any binary packages are missing.
 
 PREREQUISITES:
@@ -33,10 +33,13 @@ PREREQUISITES:
      documentation
    
    PYTHON3 PACKAGE REQUIREMENTS:
-   These can be found in requirements.txt. They can be installed with the
-   command:
+       These can be found in requirements.txt. They can be installed with the
+       command:
 
-       pip3 install -r requirements.txt
+           pip3 install -r requirements.txt --user
+
+       There may be an issue with pysptk requiring numpy before installation
+       is allowed. Install numpy first, then try the command again.
 
 QUICKSTART:
     All the below commands are expected to be run from the 'uRobo' root directory.
