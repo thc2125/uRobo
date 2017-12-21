@@ -1,3 +1,8 @@
+# Class representing the final stage of synthesis: the Unit Selecter and 
+# Concatenative synthesizer
+# Written by Tyrus Cukavac
+# thc2125
+
 from collections import defaultdict
 from pathlib import Path
 
@@ -57,14 +62,12 @@ class NNConcatenator():
 
         self.mono = mono
 
-        '''
-        (self.utt2concat_feats, 
-         self.concat_feats_mean, 
-         self.concat_feats_std) = utils.load_concat_feats(data_dir)
-        '''
-        
-
     def synthesize(self, text, output_path=Path('./synth.wav')):
+        '''Synthesize an audio file from a text string
+        Keyword Arguments:
+        text -- a string of text to synthesize; must not contain punctuation
+        output_path -- where to store the final audio file
+        '''
         # Get the phone sequence of the text
         # The current version of the synthesizer uses triphones with 1-phone 
         # overlap, with diphone and monophone backoff
@@ -242,6 +245,10 @@ class NNConcatenator():
         return concatenation, output_path
 
     def _get_phone2units(self):
+        '''Goes through all of the utterances in the data set and creates a 
+        dictionary mapping both monophones and n-phones (mono-di-tri-phone 
+        chunks) to various existing audio units
+        '''
         phone2units = defaultdict(list)
         mono_di_tri_phone2units = defaultdict(list)
         for utterance in self.utt2phones:
@@ -258,6 +265,11 @@ class NNConcatenator():
         return phone2units, mono_di_tri_phone2units
 
     def _get_phone_sequence(self, text):
+        '''Overlord function that gets the phonetic transcription of a text, 
+        then chunks into mono-di-tri-phones
+        Keyword Arguments:
+        text -- the text to be transcribed and chunked
+        '''
         phones = self._get_phones(text)
         if self.mono:
             phone_sequence = [tuple([phone]) for phone in phones]
@@ -266,8 +278,11 @@ class NNConcatenator():
         return phone_sequence
 
     def _get_phones(self, text):
-        # Begin with silence, per Hunt and Black
-        #phones = ['SIL']
+        '''Naively translate text into a phonetic pronunciation, using an 
+        existing dictionary.
+        Keyword Arguments:
+        text -- the text to be synthesized
+        '''
         phones = []
         for word in text.split():
             phones += self.word2phones[word.upper()]
@@ -278,6 +293,10 @@ class NNConcatenator():
         return phones
 
     def _get_mono_di_triphones_from_phones(self, phones):
+        '''Given a sequence of phones, chunk them into n-phones.
+        Keyword Arguments:
+        phones -- a sequence of phones to chunk
+        '''
         idx = 0
         mono_di_tri_phones = []
         while idx < len(phones):
@@ -315,7 +334,11 @@ class NNConcatenator():
 
 
     def _get_candidates(self, phone_sequence):
-        # TODO: implement backoff
+        '''Create a list of lists: a sequence of n-phone units and their 
+        candidates
+        Keyword Arguments:
+        phone_sequence -- a sequence of n-phones that need candidate units
+        '''
         candidates = []
         for phones in phone_sequence:
             #print(str(phones) + " " + str(phones in self.mono_di_tri_phone2units))
@@ -330,10 +353,20 @@ class NNConcatenator():
         return phone_sequence, candidates
 
     def _get_target_feats(self, phone_sequence):
+        '''Given a phone sequence, use the target prediction neural model
+        to predict target features for each unit.
+        Keyword Arguments:
+        phone_sequence -- a sequence of n-phones
+        '''
         idx_sequence = self._phone_seq2idxs(phone_sequence)
         return self.target_predicter.predict(idx_sequence)
 
     def _phone_seq2idxs(self, phone_seq):
+        '''Convert a sequence of textually represented phones to their
+        appropriate numerical indices (for numpy ingestion
+        Keyword Arguments:
+        phone_seq -- the sequence to convert
+        '''
         idx_shape = self.target_predicter.get_input_length()
         #print(idx_shape)
         idx_sequence = np.pad([self.mono_di_tri_phones2idx[phones] 
@@ -343,6 +376,14 @@ class NNConcatenator():
         return idx_sequence.reshape(1, idx_shape)
 
     def _concatenate(self, final_units):
+        '''Given the final selected units, extract the audio samples as numpy 
+        arrays and concatenate them with overlapping phones.
+        Keyword Arguments:
+        final_units -- a list of final units in the form (phone_type, utterance)
+                       where phone type indicates monophone or monophone/
+                       diphone/triphone and the utterance is the name of the utterance
+                       in the data set
+        '''
         unit_wavs = []
         join_phones = False
         for phone_type, utterance, unit_idx in final_units:

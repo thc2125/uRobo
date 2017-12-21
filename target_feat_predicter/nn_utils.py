@@ -1,3 +1,8 @@
+# Utility functions to serve as an interface to the neural model, via 
+# initialization and training
+# Written by Tyrus Cukavac
+# thc2125
+
 import numpy as np
 
 from pathlib import Path

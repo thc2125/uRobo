@@ -1,3 +1,8 @@
+# A class that holds the neural network model 
+# and performs target feature prediction over a sequence of phones
+# Written by Tyrus Cukavac
+# thc2125
+
 import argparse
 
 from pathlib import Path

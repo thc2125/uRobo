@@ -1,3 +1,7 @@
+# Common utilities used for both preprocessing and concatenative synthesis
+# Written by Tyrus Cukavac
+# thc2125
+
 import json
 import math
 import numpy as np
@@ -55,6 +59,11 @@ utt2concat_feats_filename = 'utt2concat_feats'
 fs=16000
 
 def load_data(processed_dirpath):
+    '''Load data from a given directory, returning Python dictionaries/lists.
+    Keyword Arguments:
+    processed_dirpath -- the directory containing (primarily) json data that
+                         has been extracted via Kaldi
+    '''
     with (processed_dirpath / (vocabulary_filename + '.json')).open() as vocab_file:
         idx2vocabulary = json.load(vocab_file)
     vocabulary2idx = {idx2vocabulary[idx]: idx 
@@ -107,17 +116,36 @@ def load_data(processed_dirpath):
             utt2mono_di_tri_alignments)
 
 def save_json(data, json_filepath):
+    '''Utility to ease saving JSON files
+    Keyword Arguments:
+    data -- A python simple object (list, tuple, dict) to be saved
+    json_filepath -- filepath to the final json output
+    '''
     with json_filepath.open('w') as jsonfile:
          json.dump(data, jsonfile, indent=4)
 
 def load_json(json_filepath):
+    '''Utility to ease loading JSON files
+    Keyword Arguments:
+    json_filepath -- filepath to json file to load
+    '''
+
     with json_filepath.open() as jsonfile:
         return json.load(jsonfile)
 
 def get_hours(dur):
+    '''Utility to convert from hours to samples
+    Keyword Arguments:
+    dur -- the length of time in hours
+    '''
     return int(dur) * 60 * 60 * fs
 
 def load_target_feats(data_dir, mono=False):
+    '''Utility to load target features from a directory of preprocessed data
+    Keyword Arguments:
+    data_dir -- A data directory holding a given data set
+    mono -- 
+    '''
     phone_type = mono_di_tri_phones_filename if not mono else phones_filename 
     utt2target_feats = load_json(
             (data_dir 
@@ -169,22 +197,12 @@ def load_target_feats(data_dir, mono=False):
             spkr2phonestarget_feats_mean,
             spkr2phonestarget_feats_std)
 
-def load_concat_feats(data_dir):
-    '''
-    utt2concat_feats = load_json((data_dir / (utt2concat_feats_filename + '.json')))
-    concat_feats_mean = np.load(str(data_dir / (concat_feats_mean_filename + '.npy')))
-    concat_feats_std = np.load(str(data_dir / (concat_feats_std_filename + '.npy')))
-    '''
-    utt2concat_feats_raw = load_json((data_dir / (utt2target_feats_filename + '.json')))
-    utt2concat_feats = [[feats[1:len(feats)] 
-                         for feats in utt_feats] 
-                        for utt_feats in utt2concat_feats_raw]
-    concat_feats_mean = np.load(str(data_dir / (target_feats_mean_filename + '.npy')))[1:]
-    concat_feats_std = np.load(str(data_dir / (target_feats_std_filename + '.npy')))[1:]
-
-    return utt2concat_feats, concat_feats_mean, concat_feats_std
-
 def get_word2phones(lexicon_path):
+    '''Utility function to load a dictionary mapping words to phonetic 
+    pronunciation.
+    Keyword Arguments:
+    lexicon_path -- path to a Kaldi lexicon detailing pronunciation
+    '''
     word2phones = {}
     dupes = 0
     with lexicon_path.open() as lexicon_file:
@@ -200,6 +218,10 @@ def get_word2phones(lexicon_path):
     return word2phones
 
 def get_phone2idx(phones_path):
+    '''Reads in a list of phones and assigns them an index
+    Keyword Arguments:
+    phones_path -- a text file of phones
+    '''
     phone2idx = {}
     idx2phone = {}
     with phones_path.open() as phones_file:
@@ -212,6 +234,14 @@ def get_phone2idx(phones_path):
     return phone2idx, idx2phone
 
 def join(samples1, samples2, fade_function=lambda i,t: (1-math.log(i,t),math.log(i,t)) if i>0 else (1, 0)):
+    '''A function to join two arrays of audio samples
+    The two samples overlap.
+    Keyword Arguments:
+    samples1 -- the first sample array in the join
+    samples2 -- the second sample array in the join
+    fade_function -- A function specifying how to combine the samples; 
+                     defaults to a logarithmic additive method
+    '''
     new_samples = []
     join_len = len(min(samples1, samples2, key=len))
     for sample_idx in range(join_len):
