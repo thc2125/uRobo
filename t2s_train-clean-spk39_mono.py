@@ -11,7 +11,7 @@ from concatenative_model.concat_nn import NNConcatenator
 
 
 alice = NNConcatenator(Path('data/train-clean-spk39/'), 
-                       Path('models/train-clean-10-f-lin-20e/model.h5'))
+                       Path('models/train-clean-10-f-lin-20e/model.h5'),
                        mono=True)
 
 bad_key = re.compile('Bad Phone: ')
