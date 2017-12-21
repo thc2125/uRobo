@@ -7,7 +7,6 @@ from pathlib import Path
 cmd='run.pl'
 libri_speech_sub_dir = Path('egs', 'librispeech', 's5')
 
-
 def train_asr(kaldi_path, raw_data_dir=Path('data/kaldi/')):
     '''Train an automatic speech recognition system over the librispeech
     corpus.

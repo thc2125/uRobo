@@ -14,6 +14,14 @@ PREREQUISITES:
    Moreover pip3 is required to install the additional Python dependencies
    (see more info below)
 
+   FFMPEG:
+   FFMPEG is required for playback/audio conversion and copying. On debian
+   based systems, 
+
+   sudo apt-get install ffmpeg
+
+   should suffice to install it.
+
    KALDI:
    uRobo needs the most recent version of Kaldi to handle the ASR training and 
    alignment stages. The output of ASR training is used for alignment which is
@@ -21,6 +29,9 @@ PREREQUISITES:
    already have preprocessed data (i.e. the kind provided in the 'data'
    directory), Kaldi is not strictly required. Otherwise, Kaldi must be func-
    tioning properly.
+
+   This can be done from the 'kaldi' folder provided (see the 'README.txt' in
+   the parent folder).
    
    All of the currently existing pre-processed data in 'data/' was
    analyzed/aligned/etc. by Kaldi's Librispeech example script. 'urobo.py' allows
@@ -39,7 +50,9 @@ PREREQUISITES:
            pip3 install -r requirements.txt --user
 
        There may be an issue with pysptk requiring numpy before installation
-       is allowed. Install numpy first, then try the command again.
+       is allowed. If so, install numpy first:
+           pip3 install numpy --user
+       Then try the command again.
 
 QUICKSTART:
     All the below commands are expected to be run from the 'uRobo' root directory.
@@ -49,7 +62,11 @@ QUICKSTART:
 
         python3 experiments/experiment_generator.py
 
-    will synthesize audio for each line in the file
+    Or failing that:
+
+        python3 -m experiments.experiment_generator
+
+    This will synthesize audio for each line in the file
     'experiments/experiment_text.txt'
 
     The path of each audio file looks like:
@@ -128,14 +145,14 @@ USAGE OF 'urobo.py':
 
     That said, to begin Kaldi's ASR training/LibriSpeech download:
         
-        python3 urobo.py -k <KALDI_DIR> -r <RAW_DATA_DIR>
+        python3 urobo.py -k <KALDI_ROOT_DIR> -r <RAW_DATA_DIR>
 
         e.g. 
             python3 urobo.py -k ../kaldi -r ../librispeech
 
     To align the data once an alignment model has been trained:
 
-        python3 urobo.py -k <KALDI_DIR> -D <DATA_TO_ALIGN> -a <ASR_MODEL>
+        python3 urobo.py -k <KALDI_ROOT_DIR> -D <DATA_TO_ALIGN> -a <ASR_MODEL>
 
         e.g.
             python3 urobo.py -k ../kaldi -D train-clean-100 -a tri6b
